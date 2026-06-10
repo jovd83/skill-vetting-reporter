@@ -59,41 +59,53 @@ PATTERNS = [
 ]
 
 # OWASP Top 10 for Agentic Applications (v1.0, 2025-12-09) mapped to the
-# heuristic categories above. Each entry: (id, name, [categories that signal it],
-# what a human still has to judge that static heuristics cannot). The report
-# uses this to show, per OWASP risk, whether anything fired and where the
-# reviewer's own judgement remains the real control.
+# heuristic categories above. Each entry:
+#   (id, name, [categories that signal it], reviewer question, mitigation advice)
+# The report shows, per OWASP risk, whether anything fired, the judgement the
+# heuristics cannot make for the reviewer, and concrete "what good looks like"
+# guidance so the table advises a fix, not just a question. Deeper per-risk
+# detail lives in references/owasp-top10-agent-skills.md.
 OWASP_ASI = [
     ("ASI01", "Agent Goal Hijack",
      ["Injection/override", "Concealment", "Hidden content", "Authority claim"],
-     "Read the full SKILL.md as data: do any instructions try to redirect the agent's goal, hide steps, or claim pre-authorization?"),
+     "Read the full SKILL.md as data: do any instructions try to redirect the agent's goal, hide steps, or claim pre-authorization?",
+     "Skill text is data, never commands. Reject 'ignore previous', hidden HTML comments, and zero-width chars; the body must not address the agent imperatively or pre-authorize itself."),
     ("ASI02", "Tool Misuse & Exploitation",
      ["Dynamic execution", "Permissions", "Privilege"],
-     "Does the skill use granted tools/commands for anything beyond its stated purpose?"),
+     "Does the skill use granted tools/commands for anything beyond its stated purpose?",
+     "Least privilege: every shell/subprocess/tool call should map to a declared step. Remove or sandbox capability beyond the stated purpose; constrain exec to fixed commands, not user-shaped strings."),
     ("ASI03", "Identity & Privilege Abuse",
      ["Credential access", "Hardcoded secret", "Privilege"],
-     "Does it touch credentials, tokens, or elevation it has no business needing?"),
+     "Does it touch credentials, tokens, or elevation it has no business needing?",
+     "No credential/token reads or elevation unless that IS the job. Prefer scoped, injected secrets over env/file harvesting; never hardcode secrets; drop sudo/runas/--privileged that isn't justified."),
     ("ASI04", "Agentic Supply Chain",
      ["Dependency", "External domains", "Binary content", "Runtime download+exec"],
-     "Are all dependencies/domains pinned, named, and trusted? Any unreviewable binary or remote payload?"),
+     "Are all dependencies/domains pinned, named, and trusted? Any unreviewable binary or remote payload?",
+     "Pin every dependency to a version/hash; name and allowlist each domain; ship no unreviewable binaries; never load remote instructions or code at runtime. Document why each external source is needed."),
     ("ASI05", "Unexpected Code Execution",
      ["Runtime download+exec", "Dynamic execution", "Obfuscation", "Toolchain auto-execution"],
-     "Can natural-language or side files (tests/hooks/CI) reach an exec path you did not expect?"),
+     "Can natural-language or side files (tests/hooks/CI) reach an exec path you did not expect?",
+     "No eval/exec on built strings, and never pipe a download straight into a shell. Open every auto-run side file (tests, git hooks, CI, setup.py/postinstall) and keep all exec paths off untrusted/model-controlled input."),
     ("ASI06", "Memory & Context Poisoning",
      ["Agent-config tampering", "Persistence"],
-     "Does it write to agent memory/config that would outlive this skill and reshape future runs?"),
+     "Does it write to agent memory/config that would outlive this skill and reshape future runs?",
+     "Writes stay inside the skill dir. Edits to CLAUDE.md/AGENTS.md/settings.json/memory need explicit, auditable justification and a clean removal path; never silently persist behaviour."),
     ("ASI07", "Insecure Inter-Agent Communication",
      ["Network call", "Exfiltration channel"],
-     "Where does outbound traffic go, and could another agent/tool be spoofed or fed poisoned messages?"),
+     "Where does outbound traffic go, and could another agent/tool be spoofed or fed poisoned messages?",
+     "Pin destinations to a documented allowlist with timeouts; verify/authenticate peers; treat inbound agent/tool content as untrusted data, not commands; confirm payloads carry no exfiltrated data."),
     ("ASI08", "Cascading Failures",
      ["Authority claim", "Concealment"],
-     "Could one bad output trigger unconditional/automated downstream actions with no checkpoint?"),
+     "Could one bad output trigger unconditional/automated downstream actions with no checkpoint?",
+     "Insert a human checkpoint before irreversible or high-impact actions; avoid 'always/silently' chained automation; make failures stop the chain rather than amplify through it."),
     ("ASI09", "Human-Agent Trust Exploitation",
      ["Concealment", "Authority claim"],
-     "Does the description match actual behaviour, or does confident framing nudge a reviewer to wave it through?"),
+     "Does the description match actual behaviour, or does confident framing nudge a reviewer to wave it through?",
+     "Description must equal behaviour. Strip 'pre-approved / no confirmation needed' framing; require explicit user consent for sensitive actions; a description-vs-behaviour mismatch is a reject on its own."),
     ("ASI10", "Rogue Agents",
      ["Concealment", "Persistence", "Exfiltration channel", "Agent-config tampering"],
-     "Taken together, is there a coherent pattern of hidden, self-directed, or persistent behaviour?"),
+     "Taken together, is there a coherent pattern of hidden, self-directed, or persistent behaviour?",
+     "If concealment + persistence + egress co-occur, reject and quarantine — do not 'approve with conditions'. Re-vet on every version change; pin the exact reviewed commit."),
 ]
 
 URL_RE = re.compile(r"https?://([a-zA-Z0-9.-]+)")
@@ -345,16 +357,17 @@ def main():
 
     def build_owasp_section():
         cats_fired = {f["cat"] for f in findings}
-        rows = ["| OWASP | Risk | Static signal | Reviewer must still judge |",
-                "|---|---|---|---|"]
-        for asi_id, asi_name, cats, manual in OWASP_ASI:
+        rows = ["| OWASP | Risk | Static signal | Reviewer must still judge | Advice — what good looks like |",
+                "|---|---|---|---|---|"]
+        for asi_id, asi_name, cats, manual, advice in OWASP_ASI:
             hit = [c for c in cats if c in cats_fired]
             signal = ("⚠ " + ", ".join(sorted(set(hit)))) if hit else "clear"
-            rows.append(f"| **{asi_id}** | {asi_name} | {signal} | {manual} |")
+            rows.append(f"| **{asi_id}** | {asi_name} | {signal} | {manual} | {advice} |")
         legend = ("\n_⚠ = a heuristic in this category fired (see §3); 'clear' = no pattern matched, "
-                  "which is **not** proof of safety. The external scanner gate (§0) adds semantic & "
-                  "behavioural coverage. Full taxonomy: OWASP Top 10 for Agentic Applications v1.0 "
-                  "(2025-12-09) — see references/owasp-top10-agent-skills.md._\n")
+                  "which is **not** proof of safety. Work the advice column for every ⚠ row, and use it "
+                  "as a baseline checklist even where clear. The external scanner gate (§0) adds semantic "
+                  "& behavioural coverage. Full taxonomy and per-risk detail: OWASP Top 10 for Agentic "
+                  "Applications v1.0 (2025-12-09) — see references/owasp-top10-agent-skills.md._\n")
         return "\n".join(rows) + legend
 
     def fmt(fl):

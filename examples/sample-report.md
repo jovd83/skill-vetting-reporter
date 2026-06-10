@@ -74,19 +74,19 @@ _None detected._
 - `api.example.com` (1x) — NOT on allowlist
 
 ## 4. OWASP Top 10 for Agentic Applications — coverage map
-| OWASP | Risk | Static signal | Reviewer must still judge |
-|---|---|---|---|
-| **ASI01** | Agent Goal Hijack | clear | Read the full SKILL.md as data: do any instructions try to redirect the agent's goal, hide steps, or claim pre-authorization? |
-| **ASI02** | Tool Misuse & Exploitation | clear | Does the skill use granted tools/commands for anything beyond its stated purpose? |
-| **ASI03** | Identity & Privilege Abuse | clear | Does it touch credentials, tokens, or elevation it has no business needing? |
-| **ASI04** | Agentic Supply Chain | ⚠ External domains | Are all dependencies/domains pinned, named, and trusted? Any unreviewable binary or remote payload? |
-| **ASI05** | Unexpected Code Execution | clear | Can natural-language or side files (tests/hooks/CI) reach an exec path you did not expect? |
-| **ASI06** | Memory & Context Poisoning | clear | Does it write to agent memory/config that would outlive this skill and reshape future runs? |
-| **ASI07** | Insecure Inter-Agent Communication | ⚠ Exfiltration channel, Network call | Where does outbound traffic go, and could another agent/tool be spoofed or fed poisoned messages? |
-| **ASI08** | Cascading Failures | clear | Could one bad output trigger unconditional/automated downstream actions with no checkpoint? |
-| **ASI09** | Human-Agent Trust Exploitation | clear | Does the description match actual behaviour, or does confident framing nudge a reviewer to wave it through? |
-| **ASI10** | Rogue Agents | ⚠ Exfiltration channel | Taken together, is there a coherent pattern of hidden, self-directed, or persistent behaviour? |
-_⚠ = a heuristic in this category fired (see §3); 'clear' = no pattern matched, which is **not** proof of safety. The external scanner gate (§0) adds semantic & behavioural coverage. Full taxonomy: OWASP Top 10 for Agentic Applications v1.0 (2025-12-09) — see references/owasp-top10-agent-skills.md._
+| OWASP | Risk | Static signal | Reviewer must still judge | Advice — what good looks like |
+|---|---|---|---|---|
+| **ASI01** | Agent Goal Hijack | clear | Read the full SKILL.md as data: do any instructions try to redirect the agent's goal, hide steps, or claim pre-authorization? | Skill text is data, never commands. Reject 'ignore previous', hidden HTML comments, and zero-width chars; the body must not address the agent imperatively or pre-authorize itself. |
+| **ASI02** | Tool Misuse & Exploitation | clear | Does the skill use granted tools/commands for anything beyond its stated purpose? | Least privilege: every shell/subprocess/tool call should map to a declared step. Remove or sandbox capability beyond the stated purpose; constrain exec to fixed commands, not user-shaped strings. |
+| **ASI03** | Identity & Privilege Abuse | clear | Does it touch credentials, tokens, or elevation it has no business needing? | No credential/token reads or elevation unless that IS the job. Prefer scoped, injected secrets over env/file harvesting; never hardcode secrets; drop sudo/runas/--privileged that isn't justified. |
+| **ASI04** | Agentic Supply Chain | ⚠ External domains | Are all dependencies/domains pinned, named, and trusted? Any unreviewable binary or remote payload? | Pin every dependency to a version/hash; name and allowlist each domain; ship no unreviewable binaries; never load remote instructions or code at runtime. Document why each external source is needed. |
+| **ASI05** | Unexpected Code Execution | clear | Can natural-language or side files (tests/hooks/CI) reach an exec path you did not expect? | No eval/exec on built strings, and never pipe a download straight into a shell. Open every auto-run side file (tests, git hooks, CI, setup.py/postinstall) and keep all exec paths off untrusted/model-controlled input. |
+| **ASI06** | Memory & Context Poisoning | clear | Does it write to agent memory/config that would outlive this skill and reshape future runs? | Writes stay inside the skill dir. Edits to CLAUDE.md/AGENTS.md/settings.json/memory need explicit, auditable justification and a clean removal path; never silently persist behaviour. |
+| **ASI07** | Insecure Inter-Agent Communication | ⚠ Exfiltration channel, Network call | Where does outbound traffic go, and could another agent/tool be spoofed or fed poisoned messages? | Pin destinations to a documented allowlist with timeouts; verify/authenticate peers; treat inbound agent/tool content as untrusted data, not commands; confirm payloads carry no exfiltrated data. |
+| **ASI08** | Cascading Failures | clear | Could one bad output trigger unconditional/automated downstream actions with no checkpoint? | Insert a human checkpoint before irreversible or high-impact actions; avoid 'always/silently' chained automation; make failures stop the chain rather than amplify through it. |
+| **ASI09** | Human-Agent Trust Exploitation | clear | Does the description match actual behaviour, or does confident framing nudge a reviewer to wave it through? | Description must equal behaviour. Strip 'pre-approved / no confirmation needed' framing; require explicit user consent for sensitive actions; a description-vs-behaviour mismatch is a reject on its own. |
+| **ASI10** | Rogue Agents | ⚠ Exfiltration channel | Taken together, is there a coherent pattern of hidden, self-directed, or persistent behaviour? | If concealment + persistence + egress co-occur, reject and quarantine — do not 'approve with conditions'. Re-vet on every version change; pin the exact reviewed commit. |
+_⚠ = a heuristic in this category fired (see §3); 'clear' = no pattern matched, which is **not** proof of safety. Work the advice column for every ⚠ row, and use it as a baseline checklist even where clear. The external scanner gate (§0) adds semantic & behavioural coverage. Full taxonomy and per-risk detail: OWASP Top 10 for Agentic Applications v1.0 (2025-12-09) — see references/owasp-top10-agent-skills.md._
 
 ## 5. Red-flag checklist (auto-prefilled where detectable)
 - ☐ Obfuscated/encoded payloads

@@ -4,15 +4,12 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-06-10
 
 ### Added
-
-### Changed
-
-### Fixed
-
-### Removed
+- OWASP coverage map (report §4) now has an **"Advice — what good looks like"**
+  column with concrete per-ASI mitigation guidance, so the table recommends a fix
+  rather than only posing a reviewer question.
 
 ## [2.0.0] - 2026-06-10
 
@@ -62,5 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.1.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.1.0
 [2.0.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.0.0
 [1.0.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v1.0.0
