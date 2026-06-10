@@ -34,7 +34,7 @@ jobs:
           PY
 
       - name: Byte-compile scripts
-        run: python -m py_compile scripts/run_scanners.py scripts/vet_skill.py
+        run: python -m py_compile scripts/run_scanners.py scripts/vet_skill.py scripts/vet_batch.py
 
       - name: Smoke test (no external scanners present -> INCOMPLETE gate)
         run: |
