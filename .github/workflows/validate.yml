@@ -1,0 +1,49 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate SKILL.md frontmatter
+        run: |
+          python - <<'PY'
+          import re, sys, pathlib
+          text = pathlib.Path("SKILL.md").read_text(encoding="utf-8")
+          m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
+          if not m:
+              sys.exit("SKILL.md is missing YAML frontmatter")
+          fm = m.group(1)
+          missing = [k for k in ("name:", "description:") if k not in fm]
+          if missing:
+              sys.exit(f"Frontmatter missing required keys: {missing}")
+          for k in ("author:", "version:", "license:"):
+              if k not in text[:m.end()]:
+                  print(f"::warning::frontmatter does not declare {k}")
+          print("SKILL.md frontmatter OK")
+          PY
+
+      - name: Byte-compile scripts
+        run: python -m py_compile scripts/run_scanners.py scripts/vet_skill.py
+
+      - name: Smoke test (no external scanners present -> INCOMPLETE gate)
+        run: |
+          set -e
+          mkdir -p /tmp/fixture-skill
+          printf -- '---\nname: fixture\ndescription: a harmless fixture skill for CI\n---\n\n# Fixture\nDoes nothing.\n' > /tmp/fixture-skill/SKILL.md
+          # gate runs with zero scanners installed -> exit 0, verdict INCOMPLETE
+          python scripts/run_scanners.py /tmp/fixture-skill -o /tmp/scan.json
+          python scripts/vet_skill.py /tmp/fixture-skill -o /tmp/report.md --scanners /tmp/scan.json
+          grep -q "OWASP Top 10 for Agentic Applications" /tmp/report.md
+          grep -q "External scanner gate" /tmp/report.md
+          echo "Smoke test OK"

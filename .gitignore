@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# skill-vetting-reporter run artifacts (generated, not source)
+scanner_results.json
+vetting_report.md
+vetting-batch/
+.smoketest/
+*_report.md
+!examples/sample-report.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
