@@ -4,7 +4,7 @@ description: Security & trust vetting for an AgentSkill (folder, SKILL.md, zip, 
 license: MIT
 metadata:
   author: jovd83
-  version: 2.1.0
+  version: 2.2.0
 ---
 
 # Skill Vetting Reporter
@@ -72,6 +72,14 @@ python scripts/vet_skill.py <path-to-skill> -o vetting_report.md --scanners scan
 ```
 Passing `--scanners` folds the gate verdict into §0 of the report and into the
 tier logic. Omit it only if you have already recorded a gate exception.
+
+The report is Markdown by default. When the user wants an HTML report, add
+`--format html` (or `--format both` for both files); HTML is styled with
+`assets/report-template.html`. The output path's extension is adjusted per
+format (`report.md` → `report.html`).
+```bash
+python scripts/vet_skill.py <path-to-skill> -o vetting_report.md --scanners scanner_results.json --format both
+```
 
 ### 4. Read every flagged location yourself
 The scanners produce candidates, not verdicts. For each finding, judge: is the
@@ -201,5 +209,8 @@ zero-width chars); hardcoded URLs/domains vs. an allowlist; dependency hygiene
 - `references/scanners.md` — per-tool install/run/trust notes for the four scanners.
 - `references/owasp-top10-agent-skills.md` — the ASI01–ASI10 taxonomy applied to
   skills; read it when a finding's impact is unclear.
-- `examples/example-skill/` + `examples/sample-report.md` — a fixture skill and
-  the report it produces, showing a dismissible false positive end to end.
+- `assets/report-template.html` — the HTML report shell (skill-dispatcher "warm
+  paper" visual language), used by `--format html`/`both`.
+- `examples/example-skill/` + `examples/sample-report.md` + `sample-report.html`
+  — a fixture skill and the Markdown and HTML reports it produces, showing a
+  dismissible false positive end to end.

@@ -7,7 +7,7 @@ Static analysis only - never executes anything from the package under review.
 Usage:
     python vet_skill.py <skill_dir_or_file> [-o report.md]
 """
-import argparse, base64, hashlib, json, os, re, sys
+import argparse, base64, hashlib, html, json, os, re, sys
 from datetime import date
 from pathlib import Path
 
@@ -208,6 +208,8 @@ def main():
     ap.add_argument("-o", "--output", default="vetting_report.md")
     ap.add_argument("--scanners", default=None,
                     help="path to scanner_results.json from run_scanners.py (the external scanner gate)")
+    ap.add_argument("--format", choices=("md", "html", "both"), default="md",
+                    help="output format: md (default), html, or both. HTML uses assets/report-template.html")
     args = ap.parse_args()
     gate = load_scanner_gate(args.scanners)
 
@@ -370,6 +372,199 @@ def main():
                   "Applications v1.0 (2025-12-09) — see references/owasp-top10-agent-skills.md._\n")
         return "\n".join(rows) + legend
 
+    def build_html_report():
+        """Render the same data as an HTML document using assets/report-template.html
+        (skill-dispatcher 'warm paper' visual language). Reuses every computed value
+        so the HTML and markdown reports never drift."""
+        tmpl_path = Path(__file__).resolve().parent.parent / "assets" / "report-template.html"
+        template = tmpl_path.read_text(encoding="utf-8")
+        esc = html.escape
+        cats_fired = {f["cat"] for f in findings}
+        n_exec = sum(1 for i in inventory if i["kind"] == "executable")
+        n_bin = sum(1 for i in inventory if i["kind"] == "binary/archive")
+
+        def sev_badge(sev):
+            return {SEV_CRIT: "crit", SEV_WARN: "warn", SEV_INFO: "info"}.get(sev, "info")
+
+        def section(num, title, body):
+            return (f'<section class="section"><h2><span class="sec-num">§{num}.</span> '
+                    f'{esc(title)}</h2>{body}</section>')
+
+        def finding_rows(fl):
+            if not fl:
+                return '<p class="empty">None detected.</p>'
+            out = []
+            for f in fl:
+                ev = f' — <span class="ev">{esc(f["evidence"])}</span>' if f["evidence"] else ""
+                out.append(
+                    f'<div class="finding"><span class="badge {sev_badge(f["sev"])}">{esc(f["sev"])}</span> '
+                    f'<span class="cat">{esc(f["cat"])}</span> — {esc(f["why"])}'
+                    f'<div class="loc"><span class="ev">{esc(f["loc"])}</span>{ev}</div>'
+                    f'<div class="judge">Reviewer judgement: ☐ confirmed ☐ false positive ☐ documented-not-performed</div></div>')
+            return "".join(out)
+
+        # --- stat cards ---
+        if gate:
+            gv = gate["gate"]
+            gcls = {"BLOCK": "is-block", "PASS": "is-pass", "INCOMPLETE": "is-warn"}.get(gv, "")
+            gsub = f'{gate["scanners_ran"]}/{gate["scanners_total"]} scanners ran'
+        else:
+            gv, gcls, gsub = "NOT RUN", "is-warn", "gate not run"
+        tier_short = "REJECT" if "REJECT" in tier else next((f"Tier {n}" for n in "321" if n in tier), "Tier 0")
+
+        def stat(label, value, sub, cls=""):
+            return (f'<div class="stat-card {cls}"><span class="stat-label">{esc(label)}</span>'
+                    f'<span class="stat-value">{esc(str(value))}</span>'
+                    f'<span class="stat-sub">{esc(sub)}</span></div>')
+        stat_cards = "".join([
+            stat("Scanner gate", gv, gsub, gcls),
+            stat("Files", len(inventory), f"{n_exec} exec · {n_bin} binary", ""),
+            stat("Critical", len(crit), "confirm or dismiss" if crit else "none detected", "is-block" if crit else ""),
+            stat("Warnings", len(warn), "review each", "is-warn" if warn else ""),
+            stat("Suggested tier", tier_short, tier_why[:60], "is-block" if "REJECT" in tier or "3" in tier else ""),
+        ])
+
+        # --- §0 gate ---
+        if gate:
+            rows = ['<table><thead><tr><th>Scanner</th><th>Status</th><th>Findings / score</th><th>Block?</th></tr></thead><tbody>']
+            for r in gate["results"]:
+                st = r["status"]
+                if st == "ran":
+                    sc = r.get("severity_counts", {})
+                    sev = ", ".join(f"{k}:{v}" for k, v in sc.items() if v) or "none"
+                    score = f' · score {r["risk_score"]}' if r.get("risk_score") is not None else ""
+                    retry = ' <span class="badge info">retried</span>' if r.get("retry") else ""
+                    blk = '<span class="badge block">yes</span>' if r.get("block") else '<span class="badge pass">no</span>'
+                    cell = f'<span class="badge {"block" if r.get("block") else "ran"}">ran</span>{retry}'
+                    rows.append(f'<tr><td>{esc(r["name"])}</td><td>{cell}</td><td>{esc(sev)}{esc(score)}</td><td>{blk}</td></tr>')
+                elif st == "missing":
+                    rows.append(f'<tr><td>{esc(r["name"])}</td><td><span class="badge missing">missing</span></td>'
+                                f'<td>install: <code>{esc(r.get("install_hint",""))}</code></td><td>—</td></tr>')
+                elif st == "skipped":
+                    rows.append(f'<tr><td>{esc(r["name"])}</td><td><span class="badge skipped">skipped</span></td>'
+                                f'<td>{esc(r.get("skip_reason",""))}</td><td>—</td></tr>')
+                else:
+                    rows.append(f'<tr><td>{esc(r["name"])}</td><td><span class="badge warn">error</span></td>'
+                                f'<td><code>{esc(str(r.get("error",""))[:120])}</code></td><td>—</td></tr>')
+            rows.append("</tbody></table>")
+            retry_notes = [f'<li><em>{esc(r["name"])}</em> — {esc(r["retry_note"])}</li>'
+                           for r in gate["results"] if r.get("retry_note")]
+            if retry_notes:
+                rows.append('<p class="note"><strong>Retries:</strong></p><ul>' + "".join(retry_notes) + "</ul>")
+            gate_body = "".join(rows)
+        else:
+            gate_body = ('<p class="note"><strong>Gate not run.</strong> Run '
+                         '<code>run_scanners.py &lt;target&gt; -o scanner_results.json</code> and re-run with '
+                         '<code>--scanners scanner_results.json</code>. Tier 1+ approval requires it.</p>')
+
+        # --- §1 identity ---
+        ident = (f'<dl class="kv">'
+                 f'<dt>Skill name</dt><dd>{esc(name)}</dd>'
+                 f'<dt>Path scanned</dt><dd><code>{esc(str(root))}</code></dd>'
+                 f'<dt>Files</dt><dd>{len(inventory)} ({n_exec} executable, {n_bin} binary/archive)</dd>'
+                 f'<dt>Description</dt><dd>{esc((fm or {}).get("description", "(none)")[:400])}</dd>'
+                 f'<dt>Version / commit pinned</dt><dd><em>(reviewer: fill in exact hash)</em></dd>'
+                 f'<dt>Source classification</dt><dd>☐ Internal ☐ Verified vendor ☐ Known community ☐ Unknown</dd></dl>')
+
+        # --- §2 inventory (collapsed) ---
+        inv_rows = "".join(
+            f'<tr><td><code>{esc(i["rel"])}</code></td><td>{esc(i["kind"])}</td><td>{i["size"]}</td>'
+            f'<td><code>{esc(i["hash"])}</code></td><td>{"yes" if i["hidden"] else ""}</td></tr>' for i in inventory)
+        inv_body = (f'<details><summary>{len(inventory)} files — click to expand</summary>'
+                    f'<table><thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256 (16)</th><th>Hidden</th></tr></thead>'
+                    f'<tbody>{inv_rows}</tbody></table></details>')
+
+        # --- §3 findings ---
+        find_body = (f'<h3>Critical ({len(crit)})</h3>{finding_rows(crit)}'
+                     f'<h3>Warnings ({len(warn)})</h3>{finding_rows(warn)}'
+                     f'<h3>Info ({len(info)})</h3>{finding_rows(info)}')
+        if domains:
+            dom_items = []
+            for d, c in sorted(domains.items()):
+                tag = ' <span class="badge warn">not allowlisted</span>' if d in unknown_domains else ''
+                dom_items.append(f'<li><code>{esc(d)}</code> ({c}×){tag}</li>')
+            find_body += f'<h3>External domains referenced</h3><ul>{"".join(dom_items)}</ul>'
+
+        # --- §4 OWASP ---
+        owasp = ['<table><thead><tr><th>OWASP</th><th>Risk</th><th>Static signal</th>'
+                 '<th>Reviewer must still judge</th><th>Advice — what good looks like</th></tr></thead><tbody>']
+        for asi_id, asi_name, cats, manual, advice in OWASP_ASI:
+            hit = sorted({c for c in cats if c in cats_fired})
+            sig = (f'<span class="badge warn">⚠ {esc(", ".join(hit))}</span>' if hit
+                   else '<span class="badge clear">clear</span>')
+            owasp.append(f'<tr><td><strong>{asi_id}</strong></td><td>{esc(asi_name)}</td><td>{sig}</td>'
+                         f'<td>{esc(manual)}</td><td>{esc(advice)}</td></tr>')
+        owasp.append('</tbody></table><p class="note">⚠ = a heuristic in this category fired; "clear" = no pattern '
+                     'matched, which is <strong>not</strong> proof of safety. Work the advice column for every ⚠ row. '
+                     'Full taxonomy: OWASP Top 10 for Agentic Applications v1.0 (2025-12-09).</p>')
+        owasp_body = "".join(owasp)
+
+        # --- §5 checklist ---
+        def chk(cond_block, label):
+            if cond_block == "block":
+                return f'<li><span class="mark flag">⚠ BLOCK</span> {esc(label)}</li>'
+            if cond_block == "flag":
+                return f'<li><span class="mark flag">⚠ check</span> {esc(label)}</li>'
+            if cond_block == "ok":
+                return f'<li><span class="mark ok">✓</span> {esc(label)}</li>'
+            return f'<li><span class="mark todo">☐</span> {esc(label)}</li>'
+        gate_chk = "block" if gate_verdict == "BLOCK" else ("flag" if gate_verdict == "INCOMPLETE"
+                   else ("ok" if gate_verdict in ("PASS",) else "todo"))
+        checklist = "<ul class='checklist'>" + "".join([
+            chk("flag" if any(f["cat"] == "Obfuscation" for f in findings) else "todo", "Obfuscated/encoded payloads"),
+            chk("flag" if any(f["cat"] == "Runtime download+exec" for f in findings) else "todo", "Runtime download & execute"),
+            chk("flag" if any(f["cat"] in ("Credential access", "Hardcoded secret") for f in findings) else "todo", "Credential/secret access"),
+            chk("flag" if any(f["cat"] in ("Concealment", "Injection/override", "Hidden content") for f in findings) else "todo", "Concealment / instruction override / hidden content"),
+            chk("flag" if any(f["cat"] in ("Persistence", "Agent-config tampering") for f in findings) else "todo", "Persistence outside skill directory"),
+            chk("todo", "Description vs. actual behaviour mismatch (manual)"),
+            chk("flag" if toolchain_hits else "todo", "Toolchain auto-executed side files"),
+            chk("flag" if unknown_domains else "todo", "Unexplained hardcoded URLs/domains"),
+            chk("todo", "Publisher impersonation (manual)"),
+            chk("flag" if any(f["cat"] == "Authority claim" for f in findings) else "todo", "Pressure/authority framing"),
+            chk(gate_chk, "External scanner gate (§0) clean"),
+        ]) + "</ul>"
+
+        # --- §6 tier ---
+        tier_body = (f'<p><span class="badge {"block" if "REJECT" in tier or "3" in tier else "warn"}">{esc(tier)}</span> — {esc(tier_why)}.</p>'
+                     f'<p class="note">Adjust for source (verified vendor may lower one tier) and blast radius '
+                     f'(credentials / sensitive data / org-wide rollout forces Tier 3). Gate state: '
+                     f'<strong>{esc(gate_verdict)}</strong> — a BLOCK forces reject/escalate; INCOMPLETE blocks Tier 1+ '
+                     f'until a scanner runs.</p>')
+
+        # --- §7+§8 reviewer + sign-off ---
+        judge_body = (
+            '<ul class="checklist">'
+            f'<li><span class="mark todo">☐</span> External scanner gate reviewed (§0) — verdict: {esc(gate_verdict)}</li>'
+            '<li><span class="mark todo">☐</span> Description alignment verified — notes: ____</li>'
+            '<li><span class="mark todo">☐</span> All flagged locations read in full</li>'
+            '<li><span class="mark todo">☐</span> OWASP coverage map (§4) walked, each ⚠ resolved</li>'
+            '<li><span class="mark todo">☐</span> Sandbox behavioural test performed (Tier 2+) — observations: ____</li>'
+            '<li><span class="mark todo">☐</span> Final tier: ____ · Final verdict: ☐ Approve ☐ Approve with conditions ☐ Escalate ☐ Reject</li>'
+            '</ul>'
+            '<table><thead><tr><th>Role</th><th>Name</th><th>Date</th></tr></thead><tbody>'
+            '<tr><td>Reviewer</td><td></td><td></td></tr>'
+            '<tr><td>Second reviewer (Tier 2+)</td><td></td><td></td></tr>'
+            '<tr><td>Security team (Tier 3)</td><td></td><td></td></tr></tbody></table>'
+            '<p class="note">Re-review due: ____ (or on any version change).</p>')
+
+        sections = "".join([
+            section("0", "External scanner gate (mandatory for Tier 1+)", gate_body),
+            section("1", "Identity", ident),
+            section("2", "File inventory", inv_body),
+            section("3", "Findings", find_body),
+            section("4", "OWASP Top 10 for Agentic Applications — coverage map", owasp_body),
+            section("5", "Red-flag checklist", checklist),
+            section("6", "Suggested review tier", tier_body),
+            section("7", "Reviewer judgement & sign-off", judge_body),
+        ])
+        gen = (f'<span>Generated {date.today().isoformat()}</span>'
+               f'<span>Static heuristics + external scanner gate</span>'
+               f'<span>Gate: {esc(gate_verdict)}</span>')
+        return (template.replace("{{TITLE}}", esc(name))
+                .replace("{{GENERATED_LINE}}", gen)
+                .replace("{{STAT_CARDS}}", stat_cards)
+                .replace("{{SECTIONS}}", sections))
+
     def fmt(fl):
         if not fl:
             return "_None detected._\n"
@@ -455,10 +650,20 @@ Gate state: **{gate_verdict}** — a BLOCK forces reject/escalate; INCOMPLETE bl
 
 Re-review due: ____ (or on any version change)
 """
-    Path(args.output).write_text(report, encoding="utf-8")
+    out = Path(args.output)
+    stem = out.with_suffix("")
+    written = {}
+    if args.format in ("md", "both"):
+        md_path = out if out.suffix.lower() != ".html" else stem.with_suffix(".md")
+        Path(md_path).write_text(report, encoding="utf-8")
+        written["markdown"] = str(md_path)
+    if args.format in ("html", "both"):
+        html_path = out if out.suffix.lower() == ".html" else stem.with_suffix(".html")
+        Path(html_path).write_text(build_html_report(), encoding="utf-8")
+        written["html"] = str(html_path)
     print(json.dumps({"files": len(inventory), "critical": len(crit), "warnings": len(warn),
                       "info": len(info), "suggested_tier": tier, "scanner_gate": gate_verdict,
-                      "report": args.output}))
+                      "outputs": written}))
 
 
 if __name__ == "__main__":

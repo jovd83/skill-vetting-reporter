@@ -1,0 +1,155 @@
+﻿<!-- GENERATED EXAMPLE: produced by running the skill against examples/example-skill/ with --format html. Scanner gate (section 0) reflects the tools installed when generated; paths/timestamps/hashes differ on your machine. Visual style matches the skill-dispatcher wallboard. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>example-weather-fetcher â€” Skill Vetting Report</title>
+<style>
+  :root {
+    --bg: #efe4d1;
+    --paper: rgba(255, 251, 243, 0.82);
+    --paper-strong: #fffaf2;
+    --ink: #18130f;
+    --muted: #756858;
+    --line: rgba(98, 73, 42, 0.16);
+    --line-strong: rgba(98, 73, 42, 0.26);
+    --accent: #a34e25;
+    --accent-strong: #7f3817;
+    --accent-soft: rgba(163, 78, 37, 0.10);
+    --olive: #42563d;
+    --gold: #c3922f;
+    --shadow: 0 22px 60px rgba(73, 47, 18, 0.10);
+    --radius: 22px;
+    --radius-lg: 34px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(255, 245, 222, 0.95), transparent 26%),
+      radial-gradient(circle at 85% 14%, rgba(211, 164, 107, 0.18), transparent 20%),
+      radial-gradient(circle at 74% 62%, rgba(255, 255, 255, 0.54), transparent 22%),
+      linear-gradient(180deg, #f6eedf 0%, #ede2cf 48%, #e9dcc8 100%);
+    color: var(--ink);
+    font-family: "Aptos", "Trebuchet MS", "Segoe UI", sans-serif;
+    line-height: 1.55;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120, 89, 53, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120, 89, 53, 0.025) 1px, transparent 1px);
+    background-size: 120px 120px; opacity: 0.45; mix-blend-mode: multiply;
+  }
+  .container { position: relative; max-width: 1120px; margin: 0 auto; padding: 40px 28px 64px; }
+
+  /* Hero */
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    color: var(--accent-strong); font-size: 0.78rem; font-weight: 800;
+    letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; display: block; width: 40px; height: 1px; background: rgba(127, 56, 23, 0.4); }
+  h1 {
+    font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+    font-size: clamp(2.4rem, 5vw, 3.9rem); margin: 0; letter-spacing: -0.04em; line-height: 0.96;
+  }
+  .hero-subcopy { max-width: 78ch; margin-top: 14px; color: rgba(24, 19, 15, 0.74); font-size: 1rem; }
+  .timestamp {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 0.8rem;
+    margin-top: 18px; text-transform: uppercase; letter-spacing: 0.1em;
+  }
+
+  /* Stat cards */
+  .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 30px 0 8px; }
+  .stat-card {
+    position: relative; background: linear-gradient(180deg, rgba(255, 251, 243, 0.94), rgba(250, 241, 229, 0.80));
+    border: 1px solid rgba(120, 89, 53, 0.12); border-radius: var(--radius); padding: 22px 24px;
+    box-shadow: var(--shadow); overflow: hidden; min-height: 130px; display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .stat-card::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+    background: linear-gradient(90deg, var(--bar, rgba(163,78,37,0.65)), rgba(195, 146, 47, 0.12)); opacity: 0.8; }
+  .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .stat-value { font-size: clamp(1.9rem, 3vw, 2.8rem); font-weight: 800; line-height: 1; letter-spacing: -0.04em; }
+  .stat-sub { color: var(--muted); font-size: 0.8rem; }
+  .stat-card.is-block { --bar: var(--accent-strong); }
+  .stat-card.is-block .stat-value { color: var(--accent-strong); }
+  .stat-card.is-pass { --bar: var(--olive); }
+  .stat-card.is-pass .stat-value { color: var(--olive); }
+  .stat-card.is-warn { --bar: var(--gold); }
+
+  /* Section cards */
+  .section {
+    position: relative; background: linear-gradient(180deg, rgba(255, 251, 243, 0.96), rgba(250, 241, 229, 0.84));
+    border: 1px solid rgba(120, 89, 53, 0.12); border-radius: var(--radius); padding: 26px 28px;
+    box-shadow: var(--shadow); margin-top: 22px; overflow: hidden;
+  }
+  .section::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+    background: linear-gradient(90deg, rgba(163, 78, 37, 0.65), rgba(195, 146, 47, 0.12)); opacity: 0.72; }
+  .section h2 {
+    font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+    font-size: 1.5rem; margin: 4px 0 18px; letter-spacing: -0.02em;
+  }
+  .section h2 .sec-num { color: var(--accent); }
+  .note { color: var(--muted); font-size: 0.85rem; margin-top: 12px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); background: rgba(163, 78, 37, 0.05); }
+  tr:last-child td { border-bottom: none; }
+  td code, .ev { font-family: "Consolas", "SFMono-Regular", monospace; font-size: 0.82rem; background: rgba(120, 89, 53, 0.08);
+    padding: 1px 6px; border-radius: 6px; word-break: break-word; }
+
+  /* Key-value */
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 22px; font-size: 0.92rem; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;
+    letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; white-space: nowrap; }
+  .badge.crit, .badge.block { background: rgba(163, 78, 37, 0.14); color: var(--accent-strong); border-color: rgba(163, 78, 37, 0.3); }
+  .badge.warn { background: rgba(195, 146, 47, 0.18); color: #8a6516; border-color: rgba(195, 146, 47, 0.34); }
+  .badge.info, .badge.skipped, .badge.missing { background: rgba(117, 104, 88, 0.12); color: var(--muted); border-color: rgba(117, 104, 88, 0.24); }
+  .badge.pass, .badge.ran, .badge.clear { background: rgba(66, 86, 61, 0.14); color: var(--olive); border-color: rgba(66, 86, 61, 0.3); }
+
+  /* Findings */
+  .finding { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .finding:last-child { border-bottom: none; }
+  .finding .cat { font-weight: 800; }
+  .finding .loc { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+  .finding .judge { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+  .empty { color: var(--olive); font-style: italic; }
+
+  /* Checklist */
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li { padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
+  .checklist li:last-child { border-bottom: none; }
+  .mark { font-weight: 800; }
+  .mark.flag { color: var(--accent-strong); }
+  .mark.ok { color: var(--olive); }
+  .mark.todo { color: var(--muted); }
+
+  details > summary { cursor: pointer; color: var(--accent); font-weight: 700; padding: 6px 0; }
+  .foot { color: var(--muted); font-size: 0.8rem; margin-top: 34px; text-align: center; }
+  a { color: var(--accent-strong); }
+  @media print { body { background: #fff; } .section, .stat-card { box-shadow: none; } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <span class="eyebrow">AgentSkill Vetting Report</span>
+      <h1>example-weather-fetcher</h1>
+      <p class="hero-subcopy"><strong>"No findings" means no known patterns matched â€” it does NOT mean the skill is safe.</strong> A human reviewer must complete every judgement section before any approval. Static analysis only; the reviewed skill's code is never executed.</p>
+      <div class="timestamp"><span>Generated 2026-06-11</span><span>Static heuristics + external scanner gate</span><span>Gate: PASS</span></div>
+    </header>
+    <section class="statgrid"><div class="stat-card is-pass"><span class="stat-label">Scanner gate</span><span class="stat-value">PASS</span><span class="stat-sub">2/4 scanners ran</span></div><div class="stat-card "><span class="stat-label">Files</span><span class="stat-value">2</span><span class="stat-sub">1 exec Â· 0 binary</span></div><div class="stat-card is-block"><span class="stat-label">Critical</span><span class="stat-value">1</span><span class="stat-sub">confirm or dismiss</span></div><div class="stat-card is-warn"><span class="stat-label">Warnings</span><span class="stat-value">3</span><span class="stat-sub">review each</span></div><div class="stat-card is-block"><span class="stat-label">Suggested tier</span><span class="stat-value">Tier 3</span><span class="stat-sub">at least one critical finding to confirm or dismiss</span></div></section>
+    <section class="section"><h2><span class="sec-num">Â§0.</span> External scanner gate (mandatory for Tier 1+)</h2><table><thead><tr><th>Scanner</th><th>Status</th><th>Findings / score</th><th>Block?</th></tr></thead><tbody><tr><td>Cisco AI Defense skill-scanner</td><td><span class="badge ran">ran</span></td><td>none</td><td><span class="badge pass">no</span></td></tr><tr><td>NVIDIA SkillSpector</td><td><span class="badge ran">ran</span></td><td>none Â· score 26.0</td><td><span class="badge pass">no</span></td></tr><tr><td>Snyk Agent Scan</td><td><span class="badge skipped">skipped</span></td><td>SNYK_TOKEN not set - export it to enable Snyk</td><td>â€”</td></tr><tr><td>sentry/skill-scanner (community)</td><td><span class="badge missing">missing</span></td><td>install: <code>npx skills add https://github.com/getsentry/skills --skill skill-scanner</code></td><td>â€”</td></tr></tbody></table></section><section class="section"><h2><span class="sec-num">Â§1.</span> Identity</h2><dl class="kv"><dt>Skill name</dt><dd>example-weather-fetcher</dd><dt>Path scanned</dt><dd><code>examples/example-skill</code></dd><dt>Files</dt><dd>2 (1 executable, 0 binary/archive)</dd><dt>Description</dt><dd>Example fixture skill bundled with skill-vetting-reporter. It fetches a public weather forecast for a city and returns a one-line summary. It exists only to demonstrate what a vetting report looks like â€” including a deliberate false positive â€” and is not meant to be installed or used for real work.</dd><dt>Version / commit pinned</dt><dd><em>(reviewer: fill in exact hash)</em></dd><dt>Source classification</dt><dd>â˜ Internal â˜ Verified vendor â˜ Known community â˜ Unknown</dd></dl></section><section class="section"><h2><span class="sec-num">Â§2.</span> File inventory</h2><details><summary>2 files â€” click to expand</summary><table><thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256 (16)</th><th>Hidden</th></tr></thead><tbody><tr><td><code>scripts\fetch.py</code></td><td>executable</td><td>712</td><td><code>0bfb8f10d47442f0</code></td><td></td></tr><tr><td><code>SKILL.md</code></td><td>text</td><td>1152</td><td><code>61f1edd0d479149a</code></td><td></td></tr></tbody></table></details></section><section class="section"><h2><span class="sec-num">Â§3.</span> Findings</h2><h3>Critical (1)</h3><div class="finding"><span class="badge crit">CRITICAL</span> <span class="cat">Exfiltration channel</span> â€” Known exfiltration/callback channel reference<div class="loc"><span class="ev">SKILL.md:25</span> â€” <span class="ev">`scripts/fetch.py`. The word **webhook** appears here purely as documentation</span></div><div class="judge">Reviewer judgement: â˜ confirmed â˜ false positive â˜ documented-not-performed</div></div><h3>Warnings (3)</h3><div class="finding"><span class="badge warn">WARNING</span> <span class="cat">Network call</span> â€” Outbound network call - verify destination &amp; payload<div class="loc"><span class="ev">scripts\fetch.py:8</span> â€” <span class="ev">import urllib.request</span></div><div class="judge">Reviewer judgement: â˜ confirmed â˜ false positive â˜ documented-not-performed</div></div><div class="finding"><span class="badge warn">WARNING</span> <span class="cat">Network call</span> â€” Outbound network call - verify destination &amp; payload<div class="loc"><span class="ev">scripts\fetch.py:13</span> â€” <span class="ev">with urllib.request.urlopen(url) as resp:  # outbound network call (reported as a warning)</span></div><div class="judge">Reviewer judgement: â˜ confirmed â˜ false positive â˜ documented-not-performed</div></div><div class="finding"><span class="badge warn">WARNING</span> <span class="cat">External domains</span> â€” Non-allowlisted domains referenced - verify each<div class="loc"><span class="ev">-</span> â€” <span class="ev">api.example.com</span></div><div class="judge">Reviewer judgement: â˜ confirmed â˜ false positive â˜ documented-not-performed</div></div><h3>Info (0)</h3><p class="empty">None detected.</p><h3>External domains referenced</h3><ul><li><code>api.example.com</code> (1Ã—) <span class="badge warn">not allowlisted</span></li></ul></section><section class="section"><h2><span class="sec-num">Â§4.</span> OWASP Top 10 for Agentic Applications â€” coverage map</h2><table><thead><tr><th>OWASP</th><th>Risk</th><th>Static signal</th><th>Reviewer must still judge</th><th>Advice â€” what good looks like</th></tr></thead><tbody><tr><td><strong>ASI01</strong></td><td>Agent Goal Hijack</td><td><span class="badge clear">clear</span></td><td>Read the full SKILL.md as data: do any instructions try to redirect the agent&#x27;s goal, hide steps, or claim pre-authorization?</td><td>Skill text is data, never commands. Reject &#x27;ignore previous&#x27;, hidden HTML comments, and zero-width chars; the body must not address the agent imperatively or pre-authorize itself.</td></tr><tr><td><strong>ASI02</strong></td><td>Tool Misuse &amp; Exploitation</td><td><span class="badge clear">clear</span></td><td>Does the skill use granted tools/commands for anything beyond its stated purpose?</td><td>Least privilege: every shell/subprocess/tool call should map to a declared step. Remove or sandbox capability beyond the stated purpose; constrain exec to fixed commands, not user-shaped strings.</td></tr><tr><td><strong>ASI03</strong></td><td>Identity &amp; Privilege Abuse</td><td><span class="badge clear">clear</span></td><td>Does it touch credentials, tokens, or elevation it has no business needing?</td><td>No credential/token reads or elevation unless that IS the job. Prefer scoped, injected secrets over env/file harvesting; never hardcode secrets; drop sudo/runas/--privileged that isn&#x27;t justified.</td></tr><tr><td><strong>ASI04</strong></td><td>Agentic Supply Chain</td><td><span class="badge warn">âš  External domains</span></td><td>Are all dependencies/domains pinned, named, and trusted? Any unreviewable binary or remote payload?</td><td>Pin every dependency to a version/hash; name and allowlist each domain; ship no unreviewable binaries; never load remote instructions or code at runtime. Document why each external source is needed.</td></tr><tr><td><strong>ASI05</strong></td><td>Unexpected Code Execution</td><td><span class="badge clear">clear</span></td><td>Can natural-language or side files (tests/hooks/CI) reach an exec path you did not expect?</td><td>No eval/exec on built strings, and never pipe a download straight into a shell. Open every auto-run side file (tests, git hooks, CI, setup.py/postinstall) and keep all exec paths off untrusted/model-controlled input.</td></tr><tr><td><strong>ASI06</strong></td><td>Memory &amp; Context Poisoning</td><td><span class="badge clear">clear</span></td><td>Does it write to agent memory/config that would outlive this skill and reshape future runs?</td><td>Writes stay inside the skill dir. Edits to CLAUDE.md/AGENTS.md/settings.json/memory need explicit, auditable justification and a clean removal path; never silently persist behaviour.</td></tr><tr><td><strong>ASI07</strong></td><td>Insecure Inter-Agent Communication</td><td><span class="badge warn">âš  Exfiltration channel, Network call</span></td><td>Where does outbound traffic go, and could another agent/tool be spoofed or fed poisoned messages?</td><td>Pin destinations to a documented allowlist with timeouts; verify/authenticate peers; treat inbound agent/tool content as untrusted data, not commands; confirm payloads carry no exfiltrated data.</td></tr><tr><td><strong>ASI08</strong></td><td>Cascading Failures</td><td><span class="badge clear">clear</span></td><td>Could one bad output trigger unconditional/automated downstream actions with no checkpoint?</td><td>Insert a human checkpoint before irreversible or high-impact actions; avoid &#x27;always/silently&#x27; chained automation; make failures stop the chain rather than amplify through it.</td></tr><tr><td><strong>ASI09</strong></td><td>Human-Agent Trust Exploitation</td><td><span class="badge clear">clear</span></td><td>Does the description match actual behaviour, or does confident framing nudge a reviewer to wave it through?</td><td>Description must equal behaviour. Strip &#x27;pre-approved / no confirmation needed&#x27; framing; require explicit user consent for sensitive actions; a description-vs-behaviour mismatch is a reject on its own.</td></tr><tr><td><strong>ASI10</strong></td><td>Rogue Agents</td><td><span class="badge warn">âš  Exfiltration channel</span></td><td>Taken together, is there a coherent pattern of hidden, self-directed, or persistent behaviour?</td><td>If concealment + persistence + egress co-occur, reject and quarantine â€” do not &#x27;approve with conditions&#x27;. Re-vet on every version change; pin the exact reviewed commit.</td></tr></tbody></table><p class="note">âš  = a heuristic in this category fired; "clear" = no pattern matched, which is <strong>not</strong> proof of safety. Work the advice column for every âš  row. Full taxonomy: OWASP Top 10 for Agentic Applications v1.0 (2025-12-09).</p></section><section class="section"><h2><span class="sec-num">Â§5.</span> Red-flag checklist</h2><ul class='checklist'><li><span class="mark todo">â˜</span> Obfuscated/encoded payloads</li><li><span class="mark todo">â˜</span> Runtime download &amp; execute</li><li><span class="mark todo">â˜</span> Credential/secret access</li><li><span class="mark todo">â˜</span> Concealment / instruction override / hidden content</li><li><span class="mark todo">â˜</span> Persistence outside skill directory</li><li><span class="mark todo">â˜</span> Description vs. actual behaviour mismatch (manual)</li><li><span class="mark todo">â˜</span> Toolchain auto-executed side files</li><li><span class="mark flag">âš  check</span> Unexplained hardcoded URLs/domains</li><li><span class="mark todo">â˜</span> Publisher impersonation (manual)</li><li><span class="mark todo">â˜</span> Pressure/authority framing</li><li><span class="mark ok">âœ“</span> External scanner gate (Â§0) clean</li></ul></section><section class="section"><h2><span class="sec-num">Â§6.</span> Suggested review tier</h2><p><span class="badge block">Tier 3 (deep review)</span> â€” at least one critical finding to confirm or dismiss.</p><p class="note">Adjust for source (verified vendor may lower one tier) and blast radius (credentials / sensitive data / org-wide rollout forces Tier 3). Gate state: <strong>PASS</strong> â€” a BLOCK forces reject/escalate; INCOMPLETE blocks Tier 1+ until a scanner runs.</p></section><section class="section"><h2><span class="sec-num">Â§7.</span> Reviewer judgement &amp; sign-off</h2><ul class="checklist"><li><span class="mark todo">â˜</span> External scanner gate reviewed (Â§0) â€” verdict: PASS</li><li><span class="mark todo">â˜</span> Description alignment verified â€” notes: ____</li><li><span class="mark todo">â˜</span> All flagged locations read in full</li><li><span class="mark todo">â˜</span> OWASP coverage map (Â§4) walked, each âš  resolved</li><li><span class="mark todo">â˜</span> Sandbox behavioural test performed (Tier 2+) â€” observations: ____</li><li><span class="mark todo">â˜</span> Final tier: ____ Â· Final verdict: â˜ Approve â˜ Approve with conditions â˜ Escalate â˜ Reject</li></ul><table><thead><tr><th>Role</th><th>Name</th><th>Date</th></tr></thead><tbody><tr><td>Reviewer</td><td></td><td></td></tr><tr><td>Second reviewer (Tier 2+)</td><td></td><td></td></tr><tr><td>Security team (Tier 3)</td><td></td><td></td></tr></tbody></table><p class="note">Re-review due: ____ (or on any version change).</p></section>
+    <footer class="foot">Generated by skill-vetting-reporter Â· this report assists human review and never approves anything on its own.</footer>
+  </div>
+</body>
+</html>

@@ -4,15 +4,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-06-11
 
 ### Added
-
-### Changed
-
-### Fixed
-
-### Removed
+- **HTML report output** via `vet_skill.py --format html` (or `both`), styled with
+  the new `assets/report-template.html` shell that matches the skill-dispatcher
+  wallboard's "warm paper" visual language (terracotta/olive/gold on paper, serif
+  hero, accent-barred cards, severity badges). Markdown stays the default; the
+  HTML renders from the same computed data, so the two never drift. Adds
+  `examples/sample-report.html`.
 
 ## [2.1.0] - 2026-06-10
 
@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.2.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.2.0
 [2.1.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.1.0
 [2.0.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.0.0
 [1.0.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v1.0.0

@@ -43,7 +43,12 @@ jobs:
           printf -- '---\nname: fixture\ndescription: a harmless fixture skill for CI\n---\n\n# Fixture\nDoes nothing.\n' > /tmp/fixture-skill/SKILL.md
           # gate runs with zero scanners installed -> exit 0, verdict INCOMPLETE
           python scripts/run_scanners.py /tmp/fixture-skill -o /tmp/scan.json
-          python scripts/vet_skill.py /tmp/fixture-skill -o /tmp/report.md --scanners /tmp/scan.json
+          # exercise both Markdown and HTML output
+          python scripts/vet_skill.py /tmp/fixture-skill -o /tmp/report.md --scanners /tmp/scan.json --format both
           grep -q "OWASP Top 10 for Agentic Applications" /tmp/report.md
           grep -q "External scanner gate" /tmp/report.md
-          echo "Smoke test OK"
+          test -f /tmp/report.html
+          grep -q "AgentSkill Vetting Report" /tmp/report.html
+          grep -q "</html>" /tmp/report.html
+          ! grep -q "{{" /tmp/report.html   # no unsubstituted template placeholders
+          echo "Smoke test OK (md + html)"

@@ -1,6 +1,6 @@
 # skill-vetting-reporter
 
-[![version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.2.0-blue.svg)](CHANGELOG.md)
 [![status](https://img.shields.io/badge/status-active-success.svg)](#)
 [![category](https://img.shields.io/badge/category-security%20%2F%20governance-purple.svg)](#)
 [![validation](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml/badge.svg)](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml)
@@ -131,7 +131,12 @@ python scripts/run_scanners.py <path-to-skill> -o scanner_results.json
 
 # 2. heuristics + report, folding in the gate
 python scripts/vet_skill.py <path-to-skill> -o vetting_report.md --scanners scanner_results.json
+#    --format md (default) | html | both   -> HTML uses assets/report-template.html
 ```
+
+The report is Markdown by default. For a styled **HTML report** (same "warm
+paper" visual language as the skill-dispatcher wallboard), add `--format html`
+or `--format both`. See [examples/sample-report.html](examples/sample-report.html).
 
 Open `vetting_report.md`, work through every finding and every ⚠ in the OWASP
 map, complete the reviewer-judgement and sign-off sections, and record the final
@@ -174,9 +179,12 @@ skill-vetting-reporter/
 ├── references/
 │   ├── scanners.md                           # per-tool install/run/trust notes
 │   └── owasp-top10-agent-skills.md           # ASI01–ASI10 applied to skills
+├── assets/
+│   └── report-template.html                  # HTML report shell (dispatcher style)
 └── examples/
     ├── example-skill/                        # benign fixture skill
-    └── sample-report.md                      # the report that fixture produces
+    ├── sample-report.md                      # the Markdown report that fixture produces
+    └── sample-report.html                    # the HTML report that fixture produces
 ```
 
 ## Hard rules (enforced by the skill)
