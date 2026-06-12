@@ -4,7 +4,7 @@ description: Security & trust vetting for an AgentSkill (folder, SKILL.md, zip, 
 license: MIT
 metadata:
   author: jovd83
-  version: 2.2.0
+  version: 2.3.0
 ---
 
 # Skill Vetting Reporter
@@ -32,7 +32,39 @@ Two ideas drive everything here:
 - On demand: "run the vetting on skill X", "vet skills X and Y", "scan
   everything in ~/.agents/skills". See [On-demand invocation](#on-demand-invocation).
 
-## Workflow
+## Two phases
+
+This skill runs in two clearly separated phases so the static scanner can keep
+its "never fetch" guarantee:
+
+- **Phase 1 — Author & context lookup (live, online allowed).** *You* (the agent)
+  establish who the author is and whether they are trusted. First check the
+  bundled allowlist `references/trusted_authors.json`; if the author is listed,
+  they are trusted and their `about`/credibility come from there — no lookup
+  needed. If they are **not** listed, do a quick web/GitHub lookup of the author
+  (profile, repos, reputation) and write a small `profile.json` (see below). This
+  is the only place the skill goes online.
+- **Phase 2 — Static analysis (offline).** The scanner gate + `vet_skill.py` run
+  purely on local files and never fetch anything. `vet_skill.py` reads the
+  trusted-author list and your optional `profile.json` to fill the author block.
+
+`profile.json` (all keys optional) carries the Phase-1 result and any narrative:
+```json
+{
+  "summary": "1-2 paragraph report summary (else auto-generated)",
+  "category": "override the inferred category",
+  "author_about": "what you found about the author",
+  "author_credibility": 70,
+  "author_trust": "assessed",
+  "author_links": ["https://github.com/…"],
+  "other_notes": ["anything else worth knowing"]
+}
+```
+Pass it with `--profile profile.json`. For a **trusted** author it is optional;
+for an **unknown** author, Phase 1 + `profile.json` is how the report gets an
+"About the author" and a credibility score instead of placeholders.
+
+## Workflow (Phase 2)
 
 The order matters: scan first, read second, judge third. Skipping the gate or
 trusting the gate are the two ways this goes wrong.
@@ -78,8 +110,15 @@ The report is Markdown by default. When the user wants an HTML report, add
 `assets/report-template.html`. The output path's extension is adjusted per
 format (`report.md` → `report.html`).
 ```bash
-python scripts/vet_skill.py <path-to-skill> -o vetting_report.md --scanners scanner_results.json --format both
+python scripts/vet_skill.py <path-to-skill> -o vetting_report.md --scanners scanner_results.json --format both --profile profile.json
 ```
+`--profile` is optional and supplies the Phase-1 author lookup + any narrative
+(see [Two phases](#two-phases)). The report adds a **Profile & summary** block
+(category, what-it-does, author + trust + credibility + about, a synthesized
+summary) and a **Metrics & risk score** section (structural counts and a
+heuristic 0-100 score with a No-further-review / Further-review / Decline
+recommendation). That score is **additive** — it never overrides the gate (§0)
+or the suggested tier (§6).
 
 ### 4. Read every flagged location yourself
 The scanners produce candidates, not verdicts. For each finding, judge: is the
@@ -190,11 +229,19 @@ zero-width chars); hardcoded URLs/domains vs. an allowlist; dependency hygiene
 
 ## Report structure produced
 
+- **Profile & summary** — category (inferred or from `dispatcher-category`),
+  what-it-does, author + trust + credibility + about, and a synthesized 1-2
+  paragraph summary of the whole report.
 0. **External scanner gate** — per-scanner status, findings/score, gate verdict.
 1. Identity (name, path, hash, date, source classification).
 2. File inventory + executable surface.
 3. Findings by severity (critical / warning / info) with file:line evidence.
 4. **OWASP Top 10 for Agentic Applications** coverage map.
+- **Metrics & risk score** — structural counts (subfolders, files, assets/
+  references/scripts files, total + misplaced scripts) and security counts
+  (dangerous / network-tool / soft- & hard-credential hits, writes-files) with a
+  heuristic 0-100 score and a No-further-review / Further-review / Decline
+  recommendation. **Additive** — it never overrides the gate or tier.
 5. Red-flag checklist (auto-prefilled where detectable).
 6. Suggested review tier with reasoning (gate-aware).
 7. Reviewer judgement sections (completed by a human).
@@ -209,6 +256,9 @@ zero-width chars); hardcoded URLs/domains vs. an allowlist; dependency hygiene
 - `references/scanners.md` — per-tool install/run/trust notes for the four scanners.
 - `references/owasp-top10-agent-skills.md` — the ASI01–ASI10 taxonomy applied to
   skills; read it when a finding's impact is unclear.
+- `references/trusted_authors.json` — allowlist of always-trusted authors (name,
+  aliases, github, credibility, about). Add an entry to vouch for an author and
+  skip the Phase-1 lookup.
 - `assets/report-template.html` — the HTML report shell (skill-dispatcher "warm
   paper" visual language), used by `--format html`/`both`.
 - `examples/example-skill/` + `examples/sample-report.md` + `sample-report.html`

@@ -4,15 +4,28 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-06-12
 
 ### Added
+- **Profile & summary section** in every report: skill category (from
+  `dispatcher-category` or inferred), what-it-does, a synthesized 1-2 paragraph
+  summary, and an **author** block with trust + credibility + "about", resolved
+  against a new `references/trusted_authors.json` allowlist.
+- **Two-phase model**: Phase 1 = live author lookup (the only online step; result
+  passed in via `--profile profile.json`), Phase 2 = the offline static scan. The
+  static scanner still never fetches.
+- **Metrics & risk score section**: structural counts (subfolders, files,
+  assets/references/scripts files, total + misplaced scripts) and security counts
+  (dangerous, network/tool, soft- & hard-credential hits, writes-files declared)
+  with a heuristic 0-100 score and a No-further-review / Further-review / Decline
+  recommendation (misplaced −5/cap4, dangerous −8/cap8→Decline, network −2/cap12,
+  soft-cred −5/cap4, hard-cred −40/any→Decline). **Additive** — never overrides the
+  existing gate verdict or Tier 0-3.
+- `vet_skill.py --profile <json>` to inject the Phase-1 lookup + narrative.
 
 ### Changed
-
-### Fixed
-
-### Removed
+- Frontmatter parser now flattens nested `metadata:` children (author, version,
+  `dispatcher-*`) so they are visible to the report.
 
 ## [2.2.0] - 2026-06-11
 
@@ -79,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.3.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.0
 [2.2.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.2.0
 [2.1.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.1.0
 [2.0.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.0.0

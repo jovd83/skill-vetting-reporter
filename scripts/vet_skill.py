@@ -121,6 +121,134 @@ TOOLCHAIN_FILES = [
     (re.compile(r"(^|/)(setup\.py|postinstall.*|\.husky/.*)$"), "Install-time hook - runs on package install"),
 ]
 
+# --- scoring engine ----------------------------------------------------------
+# Count-based risk scoring (additive to the existing Tier 0-3 + gate, never
+# replacing them). Hits are counted in *code* files only (executable extensions),
+# so behaviour documented in markdown does not inflate the score. Each bucket has
+# a per-hit penalty and a cap; hard-credential hits or hitting the dangerous cap
+# force the recommendation to Decline.
+DANGEROUS_PATTERNS = [
+    re.compile(r"\beval\s*\(|\bexec\s*\(|new\s+Function\s*\("),
+    re.compile(r"os\.system|os\.popen|subprocess\.(run|Popen|call|check_output)|child_process|spawnSync|execSync"),
+    re.compile(r"shell\s*=\s*True"),
+    re.compile(r"\brm\s+-rf\b|Remove-Item[^\n]*-Recurse[^\n]*-Force|\bdel\s+/[sq]\b|shutil\.rmtree"),
+    re.compile(r"pickle\.loads|yaml\.load\s*\((?![^)]*Loader)|marshal\.loads"),
+    re.compile(r"curl\s+[^\n|]*\|\s*(ba)?sh|wget\s+[^\n|]*\|\s*(ba)?sh|iex\s*\(|Invoke-Expression"),
+]
+NETWORK_PATTERNS = [
+    re.compile(r"requests\.(get|post|put|delete|patch|head|request)|httpx\.|aiohttp\."),
+    re.compile(r"urllib\.request|urlopen|urlretrieve|http\.client|socket\.socket"),
+    re.compile(r"\bfetch\s*\(|axios\.|XMLHttpRequest|WebSocket|new\s+WebSocket"),
+    re.compile(r"\bcurl\s|\bwget\s|Invoke-WebRequest|Invoke-RestMethod|Net\.WebClient"),
+]
+SOFT_CREDENTIAL_PATTERNS = [
+    re.compile(r"(api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|credential|client[_-]?secret)", re.IGNORECASE),
+    re.compile(r"os\.environ(\.get)?\s*[\[(]\s*['\"][^'\"]*(KEY|TOKEN|SECRET|PASS|CRED)[^'\"]*['\"]|getenv\s*\(\s*['\"][^'\"]*(KEY|TOKEN|SECRET|PASS|CRED)", re.IGNORECASE),
+    re.compile(r"~?/\.ssh|~?/\.aws|\.npmrc|\.pypirc|\.netrc|\.git-credentials|keychain"),
+]
+HARD_CREDENTIAL_PATTERNS = [
+    re.compile(r"(api[_-]?key|token|secret|password|passwd|client[_-]?secret)\s*[:=]\s*['\"][A-Za-z0-9_\-/+=]{16,}['\"]", re.IGNORECASE),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b|\bASIA[0-9A-Z]{16}\b"),  # AWS access key ids
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),  # GitHub / Slack tokens
+    re.compile(r"\beyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"),  # JWT
+]
+SCORING_BUCKETS = [
+    # key,          patterns,                  per_hit, cap,  label
+    ("dangerous",   DANGEROUS_PATTERNS,        8,       8,    "Dangerous calls"),
+    ("network",     NETWORK_PATTERNS,          2,       12,   "Network/tool calls"),
+    ("soft_cred",   SOFT_CREDENTIAL_PATTERNS,  5,       4,    "Soft credential hits"),
+    ("hard_cred",   HARD_CREDENTIAL_PATTERNS,  40,      999,  "Hard credential hits"),
+    ("misplaced",   None,                      5,       4,    "Misplaced scripts"),
+]
+EXPECTED_SCRIPT_DIRS = {"scripts", "tests"}  # code here is expected; elsewhere = misplaced
+
+# Coarse category taxonomy, inferred from metadata or description keywords.
+CATEGORY_KEYWORDS = [
+    ("Security / governance", r"vet|securit|audit|scan|owasp|complian|threat|risk|review"),
+    ("Testing / QA", r"\btest|qa\b|playwright|cypress|junit|coverage|regression|bdd|gherkin"),
+    ("Data / synthetic data", r"synthetic|dataset|data generation|faker|csv|json data|population"),
+    ("Documentation / reporting", r"report|document|changelog|readme|slide|diagram|docx|pdf"),
+    ("Frontend / UI", r"frontend|react|angular|vue|css|tailwind|component|ui\b|design"),
+    ("DevOps / release", r"release|deploy|ci/cd|docker|kubernetes|pipeline|version bump"),
+    ("API / integration", r"\bapi\b|openapi|mcp|webhook|integration|sdk|endpoint"),
+    ("Agent tooling / memory", r"dispatcher|memory|skill|agent|orchestrat|routing"),
+]
+
+
+def count_scoring_hits(text, counts):
+    """Accumulate per-bucket regex-hit counts for one code file's text."""
+    for key, patterns, _per, _cap, _lbl in SCORING_BUCKETS:
+        if patterns is None:
+            continue
+        for rx in patterns:
+            counts[key] += len(rx.findall(text))
+
+
+def infer_category(fm, blob):
+    """Prefer an explicit dispatcher-category; else keyword-match the description."""
+    if fm:
+        for k in ("dispatcher-category", "category"):
+            if fm.get(k):
+                return fm[k].strip().capitalize() + " (declared)"
+    for label, rx in CATEGORY_KEYWORDS:
+        if re.search(rx, blob, re.IGNORECASE):
+            return label
+    return "Uncategorized"
+
+
+def load_trusted_authors(skill_root):
+    """Load the trusted-author allowlist. Looks next to this script (bundled),
+    so the runtime copy uses its own list, not one inside the skill under review."""
+    path = Path(__file__).resolve().parent.parent / "references" / "trusted_authors.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("trusted_authors", [])
+    except Exception:
+        return []
+
+
+def resolve_author(author, trusted):
+    """Match the declared author against the trusted allowlist (name/alias/github)."""
+    a = (author or "").strip().lower()
+    if not a:
+        return None
+    for entry in trusted:
+        names = [entry.get("name", "")] + entry.get("aliases", [])
+        gh = entry.get("github", "")
+        if any(a == n.strip().lower() for n in names if n) or (gh and a in gh.lower()):
+            return entry
+    return None
+
+
+def compute_score(metrics):
+    """Apply the deduction model. Returns (score, breakdown, recommendation, forced_decline)."""
+    score = 100
+    breakdown = []
+    for key, _pat, per, cap, label in SCORING_BUCKETS:
+        n = metrics.get(key, 0)
+        capped = min(n, cap)
+        pen = capped * per
+        if pen:
+            note = f" (capped at {cap})" if n > cap else ""
+            breakdown.append((label, n, -pen, note))
+        score -= pen
+    score = max(0, score)
+    forced = []
+    if metrics.get("hard_cred", 0) >= 1:
+        forced.append("hard credential hit")
+    if metrics.get("dangerous", 0) >= 8:
+        forced.append("dangerous-call cap reached")
+    if forced:
+        rec = "Decline"
+    elif score >= 90 and metrics.get("dangerous", 0) == 0 and metrics.get("network", 0) <= 6:
+        rec = "No further review"
+    elif score < 50:
+        rec = "Decline"
+    else:
+        rec = "Further review recommended"
+    return score, breakdown, rec, forced
+
 
 def sha256(p: Path) -> str:
     h = hashlib.sha256()
@@ -183,6 +311,15 @@ def parse_frontmatter(text: str):
                     i += 1
                 fm[key] = " ".join(b for b in block if b).strip()
                 continue
+            if val == "":
+                # nested mapping (e.g. `metadata:`) — flatten its children into fm
+                # so metadata.author / version / dispatcher-* become visible.
+                i += 1
+                while i < len(lines) and lines[i][:1].isspace() and ":" in lines[i] and not lines[i].lstrip().startswith("-"):
+                    sk, _, sv = lines[i].partition(":")
+                    fm.setdefault(sk.strip(), sv.strip().strip("\"'"))
+                    i += 1
+                continue
             fm[key] = val.strip("\"'")
         i += 1
     return fm
@@ -210,8 +347,18 @@ def main():
                     help="path to scanner_results.json from run_scanners.py (the external scanner gate)")
     ap.add_argument("--format", choices=("md", "html", "both"), default="md",
                     help="output format: md (default), html, or both. HTML uses assets/report-template.html")
+    ap.add_argument("--profile", default=None,
+                    help="path to a Phase-1 profile JSON (live author lookup + narrative): keys "
+                         "summary, category, author_about, author_credibility, author_trust, author_links, other_notes")
     args = ap.parse_args()
     gate = load_scanner_gate(args.scanners)
+    profile = {}
+    if args.profile:
+        try:
+            profile = json.loads(Path(args.profile).read_text(encoding="utf-8"))
+        except Exception:
+            profile = {}
+    trusted_authors = load_trusted_authors(None)
 
     root = Path(args.target).resolve()
     if not root.exists():
@@ -222,6 +369,8 @@ def main():
 
     inventory, findings, domains, toolchain_hits = [], [], {}, []
     skill_md_text, fm = None, None
+    scoring = {b[0]: 0 for b in SCORING_BUCKETS}  # dangerous/network/soft_cred/hard_cred/misplaced
+    text_blob = []  # for category inference
 
     for p in files:
         rel = str(p.relative_to(base))
@@ -250,6 +399,10 @@ def main():
             except Exception:
                 continue
             scan_text(rel, text, findings)
+            if ext in EXEC_EXT:  # score code files only; documented patterns don't inflate
+                count_scoring_hits(text, scoring)
+            if p.name in ("SKILL.md", "README.md") or ext == ".md":
+                text_blob.append(text[:4000])
             for m in URL_RE.finditer(text):
                 d = m.group(1).lower()
                 domains.setdefault(d, 0)
@@ -319,6 +472,88 @@ def main():
         tier = "REJECT / Tier 3"
         tier_why = "external scanner gate returned a blocking result (" + ", ".join(gate["blocking"]) + ")"
 
+    # --- structural metrics + risk score (additive; never replaces the tier) ---
+    name = (fm or {}).get("name", root.name)
+
+    def _topdir(rel):
+        parts = rel.replace("\\", "/").split("/")
+        return parts[0] if len(parts) > 1 else ""
+
+    def _is_script(rel):
+        return Path(rel).suffix.lower() in EXEC_EXT
+
+    subfolders = sorted({_topdir(i["rel"]) for i in inventory if _topdir(i["rel"])})
+    metrics = {
+        "subfolders": len(subfolders),
+        "files": len(inventory),
+        "skill_md": skill_md_text is not None,
+        "assets_files": sum(1 for i in inventory if _topdir(i["rel"]) == "assets"),
+        "reference_files": sum(1 for i in inventory if _topdir(i["rel"]) in ("references", "reference")),
+        "scripts_files": sum(1 for i in inventory if _topdir(i["rel"]) == "scripts" and _is_script(i["rel"])),
+        "total_scripts": sum(1 for i in inventory if _is_script(i["rel"])),
+        "dangerous": scoring["dangerous"], "network": scoring["network"],
+        "soft_cred": scoring["soft_cred"], "hard_cred": scoring["hard_cred"],
+    }
+    metrics["misplaced"] = sum(1 for i in inventory if _is_script(i["rel"])
+                               and _topdir(i["rel"]) not in EXPECTED_SCRIPT_DIRS)
+    scoring["misplaced"] = metrics["misplaced"]
+
+    def _truthy(v):
+        return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+    writes_files = _truthy((fm or {}).get("dispatcher-writes-files", "")) if fm else False
+
+    score, score_breakdown, recommendation, forced = compute_score(scoring)
+
+    # author resolution (Phase 1 lookup feeds in via --profile for non-listed authors)
+    author = (fm or {}).get("author", "")
+    if not author and skill_md_text:
+        m_a = re.search(r"\*\*Authors?:?\*\*\s*[:\-]?\s*([^|\n<]+)", skill_md_text)
+        author = m_a.group(1).strip() if m_a else ""
+    trusted_entry = resolve_author(author, trusted_authors)
+    if trusted_entry:
+        author_trust = trusted_entry.get("trust", "trusted")
+        author_cred = trusted_entry.get("credibility", 90)
+        author_about = trusted_entry.get("about", "")
+        author_links = trusted_entry.get("links", [])
+    else:
+        author_trust = profile.get("author_trust", "unknown")
+        author_cred = profile.get("author_credibility")
+        author_about = profile.get("author_about", "")
+        author_links = profile.get("author_links", [])
+
+    blob = " ".join(text_blob) + " " + (fm or {}).get("description", "")
+    category = profile.get("category") or infer_category(fm, blob)
+    what_it_does = (fm or {}).get("description", "") or "(no frontmatter description)"
+
+    other_notes = list(profile.get("other_notes", []))
+    if writes_files:
+        other_notes.append("Declares `dispatcher-writes-files: true` (writes to disk).")
+    if any(_topdir(i["rel"]) == "tests" for i in inventory):
+        other_notes.append("Ships a `tests/` folder.")
+    if any("/.github/workflows/" in ("/" + i["rel"].replace("\\", "/") + "/") for i in inventory):
+        other_notes.append("Ships CI (`.github/workflows`).")
+    n_artifacts = sum(1 for i in inventory if _topdir(i["rel"]) in ("artifacts", "out", "output"))
+    if n_artifacts > 20:
+        other_notes.append(f"Ships {n_artifacts} generated artifact files (consider excluding from the installed copy).")
+
+    # one/two paragraph synthesized summary of the report (override via --profile.summary)
+    if profile.get("summary"):
+        report_summary = profile["summary"]
+    else:
+        sev_bits = f"{len(crit)} critical, {len(warn)} warning, {len(info)} info finding(s)"
+        risk_bits = (f"{metrics['dangerous']} dangerous call(s), {metrics['network']} network/tool call(s), "
+                     f"{metrics['soft_cred']} soft- and {metrics['hard_cred']} hard-credential hit(s), "
+                     f"{metrics['misplaced']} misplaced script(s)")
+        report_summary = (
+            f"`{name}` is a **{category}** skill — {what_it_does[:200]}. The external scanner gate returned "
+            f"**{gate_verdict}** and static heuristics produced {sev_bits}; the suggested review tier is "
+            f"**{tier}**. "
+            f"The structural/risk scan found {risk_bits}, giving a heuristic risk score of **{score}/100** → "
+            f"**{recommendation}**"
+            + (f" (forced by {', '.join(forced)})" if forced else "")
+            + f". Author is **{author or 'unknown'}** (trust: {author_trust}). This score is a mechanical aid, "
+            "not a verdict — work the findings (§3), the OWASP map, and the reviewer judgement before approving.")
+
     def build_gate_section():
         if not gate:
             return ("> **Gate not run.** This is the mandatory automated pre-screen for any skill at "
@@ -387,8 +622,8 @@ def main():
             return {SEV_CRIT: "crit", SEV_WARN: "warn", SEV_INFO: "info"}.get(sev, "info")
 
         def section(num, title, body):
-            return (f'<section class="section"><h2><span class="sec-num">§{num}.</span> '
-                    f'{esc(title)}</h2>{body}</section>')
+            label = f'<span class="sec-num">§{num}.</span> ' if str(num).isdigit() else ''
+            return f'<section class="section"><h2>{label}{esc(title)}</h2>{body}</section>'
 
         def finding_rows(fl):
             if not fl:
@@ -416,9 +651,11 @@ def main():
             return (f'<div class="stat-card {cls}"><span class="stat-label">{esc(label)}</span>'
                     f'<span class="stat-value">{esc(str(value))}</span>'
                     f'<span class="stat-sub">{esc(sub)}</span></div>')
+        rec_cls = ("is-pass" if recommendation == "No further review"
+                   else "is-block" if recommendation == "Decline" else "is-warn")
         stat_cards = "".join([
             stat("Scanner gate", gv, gsub, gcls),
-            stat("Files", len(inventory), f"{n_exec} exec · {n_bin} binary", ""),
+            stat("Risk score", f"{score}/100", recommendation, rec_cls),
             stat("Critical", len(crit), "confirm or dismiss" if crit else "none detected", "is-block" if crit else ""),
             stat("Warnings", len(warn), "review each", "is-warn" if warn else ""),
             stat("Suggested tier", tier_short, tier_why[:60], "is-block" if "REJECT" in tier or "3" in tier else ""),
@@ -432,11 +669,11 @@ def main():
                 if st == "ran":
                     sc = r.get("severity_counts", {})
                     sev = ", ".join(f"{k}:{v}" for k, v in sc.items() if v) or "none"
-                    score = f' · score {r["risk_score"]}' if r.get("risk_score") is not None else ""
+                    scorestr = f' · score {r["risk_score"]}' if r.get("risk_score") is not None else ""
                     retry = ' <span class="badge info">retried</span>' if r.get("retry") else ""
                     blk = '<span class="badge block">yes</span>' if r.get("block") else '<span class="badge pass">no</span>'
                     cell = f'<span class="badge {"block" if r.get("block") else "ran"}">ran</span>{retry}'
-                    rows.append(f'<tr><td>{esc(r["name"])}</td><td>{cell}</td><td>{esc(sev)}{esc(score)}</td><td>{blk}</td></tr>')
+                    rows.append(f'<tr><td>{esc(r["name"])}</td><td>{cell}</td><td>{esc(sev)}{esc(scorestr)}</td><td>{blk}</td></tr>')
                 elif st == "missing":
                     rows.append(f'<tr><td>{esc(r["name"])}</td><td><span class="badge missing">missing</span></td>'
                                 f'<td>install: <code>{esc(r.get("install_hint",""))}</code></td><td>—</td></tr>')
@@ -547,12 +784,55 @@ def main():
             '<tr><td>Security team (Tier 3)</td><td></td><td></td></tr></tbody></table>'
             '<p class="note">Re-review due: ____ (or on any version change).</p>')
 
+        # --- Profile & summary ---
+        cred_txt = f"{author_cred} / 100" if author_cred is not None else "unknown"
+        about_txt = author_about or "(unknown — run Phase 1 author lookup, or add to references/trusted_authors.json)"
+        links_txt = ", ".join(esc(l) for l in author_links) if author_links else "—"
+        notes_html = ("<ul>" + "".join(f"<li>{esc(n)}</li>" for n in other_notes) + "</ul>") if other_notes else '<p class="note">None noted.</p>'
+        trust_badge = {"trusted": "pass", "assessed": "warn", "flagged": "block"}.get(str(author_trust).lower(), "info")
+        profile_body = (
+            f'<p>{esc(report_summary)}</p>'
+            '<dl class="kv">'
+            f'<dt>Category</dt><dd>{esc(category)}</dd>'
+            f'<dt>What it does</dt><dd>{esc(what_it_does[:300])}</dd>'
+            f'<dt>Author</dt><dd>{esc(author or "unknown")}</dd>'
+            f'<dt>Author trust</dt><dd><span class="badge {trust_badge}">{esc(str(author_trust))}</span></dd>'
+            f'<dt>Author credibility</dt><dd>{esc(cred_txt)}</dd>'
+            f'<dt>About the author</dt><dd>{esc(about_txt)}</dd>'
+            f'<dt>Links</dt><dd>{links_txt}</dd>'
+            '</dl><p class="note"><strong>Other useful things to know</strong></p>' + notes_html)
+
+        # --- Metrics & risk score ---
+        rec_badge = ("pass" if recommendation == "No further review"
+                     else "block" if recommendation == "Decline" else "warn")
+        forced_html = f' <span class="badge block">forced by {esc(", ".join(forced))}</span>' if forced else ""
+        mrows = "".join(f'<tr><td>{esc(lbl)}</td><td>{v}</td></tr>' for lbl, v in [
+            ("Subfolders", metrics["subfolders"]), ("Files", metrics["files"]),
+            ("SKILL.md present", "Yes" if metrics["skill_md"] else "No"),
+            ("Assets files", metrics["assets_files"]), ("References files", metrics["reference_files"]),
+            ("Scripts files (in scripts/)", metrics["scripts_files"]), ("Total script files", metrics["total_scripts"]),
+            ("Misplaced scripts", metrics["misplaced"]), ("Dangerous calls", metrics["dangerous"]),
+            ("Network/tool calls", metrics["network"]), ("Soft credential hits", metrics["soft_cred"]),
+            ("Hard credential hits", metrics["hard_cred"]), ("Writes files (declared)", "Yes" if writes_files else "No")])
+        bd_html = ("".join(f'<li>{esc(lbl)}: {n} hit(s) → {pen}{esc(note)}</li>' for lbl, n, pen, note in score_breakdown)
+                   or "<li>No penalties.</li>")
+        metrics_body = (
+            f'<p><span class="badge {rec_badge}">{score}/100 → {esc(recommendation)}</span>{forced_html}</p>'
+            f'<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>{mrows}</tbody></table>'
+            f'<p class="note"><strong>Score breakdown (base 100):</strong></p><ul>{bd_html}</ul>'
+            '<p class="note">Penalties: misplaced −5 (cap 4), dangerous −8 (cap 8 → forces Decline), network −2 '
+            '(cap 12), soft-cred −5 (cap 4), hard-cred −40 (any hit forces Decline). Counted in code files only, '
+            'so behaviour merely documented in markdown does not inflate the score. Complements — never replaces — '
+            'the gate (§0) and tier (§6).</p>')
+
         sections = "".join([
+            section("", "Profile & summary", profile_body),
             section("0", "External scanner gate (mandatory for Tier 1+)", gate_body),
             section("1", "Identity", ident),
             section("2", "File inventory", inv_body),
             section("3", "Findings", find_body),
             section("4", "OWASP Top 10 for Agentic Applications — coverage map", owasp_body),
+            section("", "Metrics & risk score", metrics_body),
             section("5", "Red-flag checklist", checklist),
             section("6", "Suggested review tier", tier_body),
             section("7", "Reviewer judgement & sign-off", judge_body),
@@ -564,6 +844,61 @@ def main():
                 .replace("{{GENERATED_LINE}}", gen)
                 .replace("{{STAT_CARDS}}", stat_cards)
                 .replace("{{SECTIONS}}", sections))
+
+    def build_profile_md():
+        links = ", ".join(author_links) if author_links else "—"
+        about = author_about or "_(unknown — run Phase 1 author lookup, or add the author to references/trusted_authors.json)_"
+        notes = "".join(f"- {n}\n" for n in other_notes) or "- _None noted._\n"
+        cred = f"{author_cred} / 100" if author_cred is not None else "_unknown_"
+        return f"""## Profile & summary
+
+{report_summary}
+
+| Field | Value |
+|---|---|
+| Category | {category} |
+| What it does | {what_it_does[:300]} |
+| Author | {author or '_unknown_'} |
+| Author trust | **{author_trust}** |
+| Author credibility | {cred} |
+| About the author | {about} |
+| Links | {links} |
+
+**Other useful things to know**
+{notes}
+"""
+
+    def build_metrics_md():
+        forced_note = f" — **forced by {', '.join(forced)}**" if forced else ""
+        bd = "".join(f"- {lbl}: {n} hit(s) → {pen}{note}\n" for lbl, n, pen, note in score_breakdown) or "- _No penalties._\n"
+        yn = lambda b: "Yes" if b else "No"
+        return f"""## Metrics & risk score
+
+**Heuristic risk score: {score} / 100 → {recommendation}**{forced_note}
+
+| Metric | Value |
+|---|---|
+| Subfolders | {metrics['subfolders']} |
+| Files | {metrics['files']} |
+| SKILL.md present | {yn(metrics['skill_md'])} |
+| Assets files | {metrics['assets_files']} |
+| References files | {metrics['reference_files']} |
+| Scripts files (in `scripts/`) | {metrics['scripts_files']} |
+| Total script files | {metrics['total_scripts']} |
+| Misplaced scripts | {metrics['misplaced']} |
+| Dangerous calls | {metrics['dangerous']} |
+| Network/tool calls | {metrics['network']} |
+| Soft credential hits | {metrics['soft_cred']} |
+| Hard credential hits | {metrics['hard_cred']} |
+| Writes files (declared) | {yn(writes_files)} |
+
+Score breakdown (base 100):
+{bd}
+> Penalties: misplaced −5 (cap 4), dangerous −8 (cap 8 → forces Decline), network −2 (cap 12),
+> soft-cred −5 (cap 4), hard-cred −40 (any hit forces Decline). Counted in code files only, so
+> behaviour merely *documented* in markdown does not inflate the score. This score is a mechanical
+> aid that complements — never replaces — the gate (§0) and tier (§6).
+"""
 
     def fmt(fl):
         if not fl:
@@ -584,6 +919,7 @@ def main():
 > **"No findings" means no known patterns matched — it does NOT mean the skill is safe.**
 > A human reviewer must complete every judgement section before any approval.
 
+{build_profile_md()}
 ## 0. External scanner gate (mandatory for Tier 1+)
 {build_gate_section()}
 ## 1. Identity
@@ -613,6 +949,7 @@ def main():
 
 ## 4. OWASP Top 10 for Agentic Applications — coverage map
 {build_owasp_section()}
+{build_metrics_md()}
 ## 5. Red-flag checklist (auto-prefilled where detectable)
 - {rf(any(f['cat']=='Obfuscation' for f in findings))} Obfuscated/encoded payloads
 - {rf(any(f['cat']=='Runtime download+exec' for f in findings))} Runtime download & execute

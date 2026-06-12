@@ -1,6 +1,6 @@
 # skill-vetting-reporter
 
-[![version](https://img.shields.io/badge/version-2.2.0-blue.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.3.0-blue.svg)](CHANGELOG.md)
 [![status](https://img.shields.io/badge/status-active-success.svg)](#)
 [![category](https://img.shields.io/badge/category-security%20%2F%20governance-purple.svg)](#)
 [![validation](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml/badge.svg)](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml)
@@ -33,8 +33,17 @@ Given a skill folder, a `SKILL.md`, an extracted archive, or a single script, it
    download+exec, and more) with `file:line` evidence.
 3. **Maps findings onto the OWASP Top 10 for Agentic Applications** (ASI01–ASI10)
    so the reviewer sees, per risk, what fired and what they still have to judge.
-4. **Assembles a draft report** with a suggested review tier (0–3) and empty
-   reviewer-judgement and sign-off sections for a human to complete.
+4. **Profiles the skill and the author** — category, what-it-does, a synthesized
+   summary, and an author trust/credibility block resolved against an allowlist
+   (`references/trusted_authors.json`); unknown authors get a live **Phase-1
+   lookup** (the only online step), kept separate from the offline scan.
+5. **Scores structural & security metrics** — subfolder/file/script counts,
+   misplaced scripts, dangerous/network/credential hits → a heuristic 0–100 score
+   with a No-further-review / Further-review / Decline recommendation. **Additive**
+   — it never overrides the gate or the tier.
+6. **Assembles a draft report** (Markdown or HTML) with a suggested review tier
+   (0–3) and empty reviewer-judgement and sign-off sections for a human to
+   complete.
 
 ### The scanner gate (the part people ask about)
 
@@ -178,7 +187,8 @@ skill-vetting-reporter/
 │   └── vet_batch.py                          # batch roll-up across a directory of skills
 ├── references/
 │   ├── scanners.md                           # per-tool install/run/trust notes
-│   └── owasp-top10-agent-skills.md           # ASI01–ASI10 applied to skills
+│   ├── owasp-top10-agent-skills.md           # ASI01–ASI10 applied to skills
+│   └── trusted_authors.json                  # always-trusted author allowlist
 ├── assets/
 │   └── report-template.html                  # HTML report shell (dispatcher style)
 └── examples/

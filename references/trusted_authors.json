@@ -1,0 +1,24 @@
+{
+  "schema": "skill-vetting-reporter/trusted-authors/v1",
+  "_comment": "Allowlist of authors that are always treated as trusted. Phase 1 (live author lookup) is skipped for these; their 'about' and credibility are taken from here. Match is case-insensitive against 'name', any 'aliases', or the 'github' owner/URL found in the skill's metadata.author. Add an entry to vouch for an author.",
+  "trusted_authors": [
+    {
+      "name": "jovd83",
+      "aliases": ["jochim", "jochim vandorpe", "jochimvandorpe@gmail.com", "jochimsagents@gmail.com"],
+      "github": "https://github.com/jovd83",
+      "credibility": 95,
+      "trust": "trusted",
+      "about": "Maintainer of 60+ hand-authored AgentSkills under a strict bootstrapper template (validate.yml CI on push/PR, Keep-a-Changelog, MIT, version+author metadata). Test Manager / AI Architect (Smals). Dispatcher-first, gate-driven workflow.",
+      "links": ["https://github.com/jovd83"]
+    },
+    {
+      "name": "anthropic",
+      "aliases": ["anthropic-ai", "claude"],
+      "github": "https://github.com/anthropics",
+      "credibility": 98,
+      "trust": "trusted",
+      "about": "Vendor of Claude and the Agent Skills / Claude Code tooling. First-party skills.",
+      "links": ["https://github.com/anthropics", "https://www.anthropic.com"]
+    }
+  ]
+}
