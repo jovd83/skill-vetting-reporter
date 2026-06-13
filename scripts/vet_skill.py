@@ -621,9 +621,25 @@ def main():
         def sev_badge(sev):
             return {SEV_CRIT: "crit", SEV_WARN: "warn", SEV_INFO: "info"}.get(sev, "info")
 
-        def section(num, title, body):
+        def legend_dl(items):
+            out = ["<dl class='legend'>"]
+            for t, d in items:
+                if t == "__grp__":
+                    out.append(f"<div class='grp'>{esc(d)}</div>")
+                else:
+                    out.append(f"<dt>{esc(t)}</dt><dd>{esc(d)}</dd>")
+            out.append("</dl>")
+            return "".join(out)
+
+        def section(num, title, body, legend=None):
             label = f'<span class="sec-num">§{num}.</span> ' if str(num).isdigit() else ''
-            return f'<section class="section"><h2>{label}{esc(title)}</h2>{body}</section>'
+            help_btn = ('<span class="help-btn" role="button" tabindex="0" title="Show legend" '
+                        'aria-label="Show legend">?</span>') if legend else ''
+            legend_box = f'<div class="info-box">{legend}</div>' if legend else ''
+            return (f'<details class="section" open><summary>'
+                    f'<span class="sec-h2">{label}{esc(title)}</span>{help_btn}'
+                    f'<span class="chev" aria-hidden="true"></span></summary>'
+                    f'{legend_box}{body}</details>')
 
         def finding_rows(fl):
             if not fl:
@@ -825,16 +841,83 @@ def main():
             'so behaviour merely documented in markdown does not inflate the score. Complements — never replaces — '
             'the gate (§0) and tier (§6).</p>')
 
+        gate_legend = legend_dl([
+            ("__grp__", "Gate verdict"),
+            ("PASS", "At least one scanner ran and none returned a blocking result."),
+            ("BLOCK", "A scanner flagged high/critical (or score >=51 / 'do not install') — do not approve."),
+            ("INCOMPLETE", "No scanner ran. Tier 1+ approval needs at least one, or a documented exception."),
+            ("__grp__", "Per-scanner status"),
+            ("ran", "The scanner executed and returned results."),
+            ("ran (retried)", "Re-run against a copy with frontmatter control chars sanitized; not byte-identical to the original."),
+            ("skipped", "Installed but not run (e.g. Snyk without SNYK_TOKEN)."),
+            ("missing", "Not installed; the install command is shown."),
+            ("error", "The tool failed to produce a result (auth/config/crash)."),
+        ])
+        findings_legend = legend_dl([
+            ("Critical", "A pattern that may be performing a risky behaviour — confirm or dismiss before approval."),
+            ("Warning", "Worth a look; frequently a false positive in security/testing skills."),
+            ("Info", "Low-signal context."),
+            ("documented-not-performed", "The risky pattern is described/detected in text, not actually executed — a common dismissal."),
+        ])
+        owasp_legend = legend_dl([
+            ("__grp__", "Signal column"),
+            ("clear", "No heuristic in this category matched. NOT proof of safety."),
+            ("⚠", "A heuristic in this category fired — see the Findings pane."),
+            ("__grp__", "Finding categories you may see"),
+            ("External domains", "A non-allowlisted URL/domain is referenced."),
+            ("Exfiltration channel", "A known callback/exfil sink (webhook, ngrok, paste-bin, ...)."),
+            ("Network call", "An outbound HTTP/socket/fetch call."),
+            ("Dynamic execution", "eval/exec/subprocess/shell-out — runs code or commands."),
+            ("Runtime download+exec", "Downloads and runs code (e.g. curl piped into a shell)."),
+            ("Obfuscation", "base64/hex/very-long-line content that hides intent."),
+            ("Credential access", "Reads env secrets, ~/.ssh, ~/.aws, keychains, etc."),
+            ("Hardcoded secret", "A literal API key/token/password embedded in a file."),
+            ("Persistence", "Writes to shell profiles, cron, services."),
+            ("Agent-config tampering", "Edits CLAUDE.md/AGENTS.md/settings/memory — outlives the skill."),
+            ("Concealment / Authority claim", "Hides actions from the user / claims pre-authorization."),
+            ("Toolchain auto-execution", "Side files run by tests/CI/hooks/installers."),
+        ])
+        metrics_legend = legend_dl([
+            ("__grp__", "Recommendation"),
+            ("No further review", "Score >=90, no dangerous calls, <=6 network calls."),
+            ("Further review recommended", "Middle ground — a human should look."),
+            ("Decline", "Forced by any hard-credential hit or the dangerous-call cap, or score <50."),
+            ("__grp__", "Counts (code files only)"),
+            ("Misplaced scripts", "Executable files outside scripts/ or tests/ (-5 each, cap 4)."),
+            ("Dangerous calls", "eval/exec/subprocess/rm-rf/deserialization (-8 each, cap 8 -> Decline)."),
+            ("Network/tool calls", "HTTP/socket/fetch/CLI network calls (-2 each, cap 12)."),
+            ("Soft credential hits", "References to api_key/token/password/secret, env reads (-5 each, cap 4)."),
+            ("Hard credential hits", "Literal secrets (keys/tokens/JWT/PEM) (-40 each, any -> Decline)."),
+            ("Writes files", "Declared via metadata.dispatcher-writes-files (informational)."),
+        ])
+        tier_legend = legend_dl([
+            ("Tier 0", "Instructions-only, negligible blast radius."),
+            ("Tier 1", "Low risk — pin version + register."),
+            ("Tier 2", "Executable content with warnings — sandbox test + second reviewer."),
+            ("Tier 3", "Critical findings, binaries, or a BLOCK gate — security team."),
+            ("REJECT", "Confirmed concealment/exfiltration or BLOCK — reject + quarantine."),
+        ])
+        profile_legend = legend_dl([
+            ("__grp__", "Author trust"),
+            ("trusted", "On the references/trusted_authors.json allowlist — vouched for."),
+            ("assessed", "Not listed; rated from a Phase-1 live lookup (--profile)."),
+            ("unknown", "Not listed and no lookup provided — treat with caution."),
+            ("flagged", "Known-problematic."),
+            ("__grp__", "Other"),
+            ("Credibility", "0-100 confidence in the author (from the allowlist or the lookup)."),
+            ("Category", "From the skill's dispatcher-category, else inferred from the description."),
+        ])
+
         sections = "".join([
-            section("", "Profile & summary", profile_body),
-            section("0", "External scanner gate (mandatory for Tier 1+)", gate_body),
+            section("", "Profile & summary", profile_body, profile_legend),
+            section("0", "External scanner gate (mandatory for Tier 1+)", gate_body, gate_legend),
             section("1", "Identity", ident),
             section("2", "File inventory", inv_body),
-            section("3", "Findings", find_body),
-            section("4", "OWASP Top 10 for Agentic Applications — coverage map", owasp_body),
-            section("", "Metrics & risk score", metrics_body),
+            section("3", "Findings", find_body, findings_legend),
+            section("4", "OWASP Top 10 for Agentic Applications — coverage map", owasp_body, owasp_legend),
+            section("", "Metrics & risk score", metrics_body, metrics_legend),
             section("5", "Red-flag checklist", checklist),
-            section("6", "Suggested review tier", tier_body),
+            section("6", "Suggested review tier", tier_body, tier_legend),
             section("7", "Reviewer judgement & sign-off", judge_body),
         ])
         gen = (f'<span>Generated {date.today().isoformat()}</span>'

@@ -4,15 +4,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.0] - 2026-06-12
 
 ### Added
-
-### Changed
-
-### Fixed
-
-### Removed
+- **HTML report: collapsible panes.** Every section is now a `<details>` pane with
+  a chevron and can be expanded/collapsed independently.
+- **HTML report: per-pane legends.** A `?` button next to the title of the Profile,
+  scanner gate, Findings, OWASP, Metrics & risk score, and Suggested tier panes
+  toggles a legend that defines the coded terms (gate verdicts and scanner
+  statuses; finding severities; OWASP signal terms and finding categories like
+  "clear" / External domains / Exfiltration channel; the score recommendations and
+  metric penalties; Tier 0-3 / REJECT; author trust levels). Markdown output is
+  unchanged.
 
 ## [2.3.1] - 2026-06-12
 
@@ -111,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.4.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.0
 [2.3.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.1
 [2.3.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.0
 [2.2.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.2.0
