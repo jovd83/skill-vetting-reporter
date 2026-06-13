@@ -600,11 +600,14 @@ def main():
             hit = [c for c in cats if c in cats_fired]
             signal = ("⚠ " + ", ".join(sorted(set(hit)))) if hit else "clear"
             rows.append(f"| **{asi_id}** | {asi_name} | {signal} | {manual} | {advice} |")
-        legend = ("\n_⚠ = a heuristic in this category fired (see §3); 'clear' = no pattern matched, "
-                  "which is **not** proof of safety. Work the advice column for every ⚠ row, and use it "
-                  "as a baseline checklist even where clear. The external scanner gate (§0) adds semantic "
-                  "& behavioural coverage. Full taxonomy and per-risk detail: OWASP Top 10 for Agentic "
-                  "Applications v1.0 (2025-12-09) — see references/owasp-top10-agent-skills.md._\n")
+        legend = ("\n_**⚠** = checked and a known risk pattern fired (see §3). **clear** = checked and no "
+                  "known pattern matched — this is **not** proof of safety: the scan only catches known "
+                  "patterns, so novel / obfuscated / intent-level risk can remain, and ASI06–ASI10 especially "
+                  "need human judgement. ('clear' does not mean 'could not check' — every row is always "
+                  "evaluated; skipped/missing external-scanner coverage is shown in §0.) Work the advice "
+                  "column for every ⚠ row, and use it as a baseline checklist even where clear. Full taxonomy: "
+                  "OWASP Top 10 for Agentic Applications v1.0 (2025-12-09) — see "
+                  "references/owasp-top10-agent-skills.md._\n")
         return "\n".join(rows) + legend
 
     def build_html_report():
@@ -861,8 +864,12 @@ def main():
         ])
         owasp_legend = legend_dl([
             ("__grp__", "Signal column"),
-            ("clear", "No heuristic in this category matched. NOT proof of safety."),
-            ("⚠", "A heuristic in this category fired — see the Findings pane."),
+            ("clear", "Checked: the pattern scan ran for this category and matched no known risk pattern. "
+                      "NOT a guarantee of safety — it only catches known patterns, so novel / obfuscated / "
+                      "intent-level risk can remain, and ASI06-ASI10 especially need human judgement. "
+                      "(It does not mean 'could not check'; every row is always evaluated. Skipped or "
+                      "missing external-scanner coverage is shown in the gate, section 0.)"),
+            ("⚠", "Checked: a known risk pattern in this category fired — see the Findings pane (section 3)."),
             ("__grp__", "Finding categories you may see"),
             ("External domains", "A non-allowlisted URL/domain is referenced."),
             ("Exfiltration channel", "A known callback/exfil sink (webhook, ngrok, paste-bin, ...)."),

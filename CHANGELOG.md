@@ -4,15 +4,14 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
+## [2.4.1] - 2026-06-12
 
 ### Changed
-
-### Fixed
-
-### Removed
+- Clarified the OWASP map legend for **`clear`** (HTML legend + Markdown §4
+  footnote): it now states that `clear` means the category *was* checked and no
+  known pattern matched — explicitly **not** "could not check" and **not** proof
+  of safety (known-pattern scan only; ASI06–ASI10 need human judgement; scanner
+  coverage gaps are shown in §0).
 
 ## [2.4.0] - 2026-06-12
 
@@ -124,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.4.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.1
 [2.4.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.0
 [2.3.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.1
 [2.3.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.0
