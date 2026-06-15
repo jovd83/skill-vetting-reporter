@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [2.5.0] - 2026-06-15
+
+### Added
+- **Placeholder-value hint for hardcoded-secret findings.** When a "Hardcoded
+  secret" finding's value looks like a placeholder (`change-this`/`change-me`,
+  `your-...-key/token/secret/password-here`, `sample`/`dummy`/`placeholder`/
+  `example`/`fake`/`redacted`/`todo`/etc., repeated `x`/`*`/`0`/`1` runs,
+  `${...}`/`{{...}}`/`<...>`/`%...%` template syntax, or a hyphen/underscore-joined
+  word phrase like `super-secret-key-change-this-in-production`), the report now
+  marks it with `⚑ placeholder?` (HTML badge) / a `⚑ Looks like a placeholder
+  value...` note (Markdown). The Metrics & risk score section adds a matching
+  "N of M look like placeholder value(s); verify" note on the Hard credential
+  hits line. This is a **hint only** — the finding is still listed, still counts
+  toward the score, a hard-credential hit still forces "Decline", and the
+  `☐ confirmed ☐ false positive ☐ documented-not-performed` reviewer checkbox is
+  unchanged. New legend entries explain the marker in both report formats.
+
 ## [2.4.1] - 2026-06-12
 
 ### Changed
@@ -133,6 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.5.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.0
 [2.4.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.1
 [2.4.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.0
 [2.3.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.3.1

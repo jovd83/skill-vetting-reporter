@@ -29,7 +29,7 @@ PATTERNS = [
     (r"\.npmrc|\.pypirc|\.netrc|\.git-credentials", SEV_CRIT, "Credential access", "References credential config files"),
     (r"keychain|secretservice|wincred|libsecret", SEV_WARN, "Credential access", "References OS credential stores"),
     (r"for\s+\w+\s*(,\s*\w+)?\s+in\s+os\.environ|Object\.(keys|entries)\(\s*process\.env\s*\)|printenv|env\s*\|\s*", SEV_CRIT, "Credential access", "Enumerates environment variables (harvesting pattern)"),
-    (r"(api[_-]?key|token|secret|password)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]", SEV_CRIT, "Hardcoded secret", "Possible hardcoded credential"),
+    (r"(?:api[_-]?key|token|secret|password)\s*[:=]\s*['\"]([A-Za-z0-9_\-]{16,})['\"]", SEV_CRIT, "Hardcoded secret", "Possible hardcoded credential"),
     # --- exfiltration / network
     (r"curl\s+[^\n|]*\|\s*(ba)?sh|wget\s+[^\n|]*\|\s*(ba)?sh", SEV_CRIT, "Runtime download+exec", "Downloads and executes code (curl|sh pattern)"),
     (r"(requests\.(post|put)|urllib\.request|fetch\(|axios\.(post|put)|XMLHttpRequest|websocket)", SEV_WARN, "Network call", "Outbound network call - verify destination & payload"),
@@ -147,7 +147,7 @@ SOFT_CREDENTIAL_PATTERNS = [
     re.compile(r"~?/\.ssh|~?/\.aws|\.npmrc|\.pypirc|\.netrc|\.git-credentials|keychain"),
 ]
 HARD_CREDENTIAL_PATTERNS = [
-    re.compile(r"(api[_-]?key|token|secret|password|passwd|client[_-]?secret)\s*[:=]\s*['\"][A-Za-z0-9_\-/+=]{16,}['\"]", re.IGNORECASE),
+    re.compile(r"(?:api[_-]?key|token|secret|password|passwd|client[_-]?secret)\s*[:=]\s*['\"]([A-Za-z0-9_\-/+=]{16,})['\"]", re.IGNORECASE),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b|\bASIA[0-9A-Z]{16}\b"),  # AWS access key ids
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),  # GitHub / Slack tokens
@@ -176,13 +176,40 @@ CATEGORY_KEYWORDS = [
 ]
 
 
+# Common placeholder/example markers seen in .env.example, docs, and demo code.
+# A match here is still flagged and still requires manual verification - it only
+# adds a hint so a reviewer isn't left re-deriving "this is obviously a sample"
+# by hand for every one of dozens of hits.
+PLACEHOLDER_MARKERS_RX = re.compile(
+    r"change[-_]?(this|me)\b"
+    r"|your[-_].*(key|token|secret|password|here)"
+    r"|\b(sample|dummy|placeholder|example|fake|notreal|not[-_]a[-_]real|redacted|lorem|insert|replace|todo|fixme)\b"
+    r"|x{4,}|\*{4,}|0{8,}|1{8,}"
+    r"|\$\{|\{\{|<[a-z0-9_-]+>|%[a-z0-9_-]+%",
+    re.IGNORECASE,
+)
+# A value that is just a few dictionary-style words joined by separators (e.g.
+# "super-secret-key-change-this-in-production") reads as prose, not a real key.
+READABLE_PHRASE_RX = re.compile(r"^[a-zA-Z]+(?:[-_][a-zA-Z]+){2,}$")
+
+
+def is_placeholder_value(value: str) -> bool:
+    """Heuristic only - a True still gets flagged in the report, never auto-dismissed."""
+    v = (value or "").strip().strip("'\"")
+    return bool(PLACEHOLDER_MARKERS_RX.search(v) or READABLE_PHRASE_RX.match(v))
+
+
 def count_scoring_hits(text, counts):
     """Accumulate per-bucket regex-hit counts for one code file's text."""
     for key, patterns, _per, _cap, _lbl in SCORING_BUCKETS:
         if patterns is None:
             continue
-        for rx in patterns:
-            counts[key] += len(rx.findall(text))
+        for i, rx in enumerate(patterns):
+            hits = rx.findall(text)
+            counts[key] += len(hits)
+            if key == "hard_cred" and i == 0:
+                counts["hard_cred_placeholder"] = (counts.get("hard_cred_placeholder", 0)
+                                                     + sum(1 for v in hits if is_placeholder_value(v)))
 
 
 def infer_category(fm, blob):
@@ -231,6 +258,9 @@ def compute_score(metrics):
         pen = capped * per
         if pen:
             note = f" (capped at {cap})" if n > cap else ""
+            if key == "hard_cred" and metrics.get("hard_cred_placeholder", 0) > 0:
+                ph = metrics["hard_cred_placeholder"]
+                note += f" — {ph} of {n} look like placeholder value(s); verify"
             breakdown.append((label, n, -pen, note))
         score -= pen
     score = max(0, score)
@@ -268,8 +298,11 @@ def scan_text(rel: str, text: str, findings: list):
         for m in re.finditer(rx, text, re.IGNORECASE):
             line_no = text[:m.start()].count("\n") + 1
             snippet = lines[line_no - 1].strip()[:160] if line_no <= len(lines) else ""
-            findings.append({"sev": sev, "cat": cat, "why": why,
-                             "loc": f"{rel}:{line_no}", "evidence": snippet})
+            finding = {"sev": sev, "cat": cat, "why": why,
+                       "loc": f"{rel}:{line_no}", "evidence": snippet}
+            if cat == "Hardcoded secret" and is_placeholder_value(m.group(1)):
+                finding["placeholder"] = True
+            findings.append(finding)
     # HTML comments in markdown (hidden-from-render instructions)
     if rel.endswith(".md"):
         for m in re.finditer(r"<!--(.*?)-->", text, re.DOTALL):
@@ -370,6 +403,7 @@ def main():
     inventory, findings, domains, toolchain_hits = [], [], {}, []
     skill_md_text, fm = None, None
     scoring = {b[0]: 0 for b in SCORING_BUCKETS}  # dangerous/network/soft_cred/hard_cred/misplaced
+    scoring["hard_cred_placeholder"] = 0  # subset of hard_cred whose value looks like a placeholder
     text_blob = []  # for category inference
 
     for p in files:
@@ -493,6 +527,7 @@ def main():
         "total_scripts": sum(1 for i in inventory if _is_script(i["rel"])),
         "dangerous": scoring["dangerous"], "network": scoring["network"],
         "soft_cred": scoring["soft_cred"], "hard_cred": scoring["hard_cred"],
+        "hard_cred_placeholder": scoring["hard_cred_placeholder"],
     }
     metrics["misplaced"] = sum(1 for i in inventory if _is_script(i["rel"])
                                and _topdir(i["rel"]) not in EXPECTED_SCRIPT_DIRS)
@@ -650,9 +685,12 @@ def main():
             out = []
             for f in fl:
                 ev = f' — <span class="ev">{esc(f["evidence"])}</span>' if f["evidence"] else ""
+                flag = (' <span class="badge flag" title="Looks like a placeholder value (e.g. \'change-this\', '
+                        'a generic example, or a dictionary-word phrase) — still verify it isn\'t a real '
+                        'credential.">⚑ placeholder?</span>') if f.get("placeholder") else ""
                 out.append(
                     f'<div class="finding"><span class="badge {sev_badge(f["sev"])}">{esc(f["sev"])}</span> '
-                    f'<span class="cat">{esc(f["cat"])}</span> — {esc(f["why"])}'
+                    f'<span class="cat">{esc(f["cat"])}</span>{flag} — {esc(f["why"])}'
                     f'<div class="loc"><span class="ev">{esc(f["loc"])}</span>{ev}</div>'
                     f'<div class="judge">Reviewer judgement: ☐ confirmed ☐ false positive ☐ documented-not-performed</div></div>')
             return "".join(out)
@@ -861,6 +899,9 @@ def main():
             ("Warning", "Worth a look; frequently a false positive in security/testing skills."),
             ("Info", "Low-signal context."),
             ("documented-not-performed", "The risky pattern is described/detected in text, not actually executed — a common dismissal."),
+            ("⚑ placeholder?", "The hardcoded-secret value looks like a placeholder (e.g. \"change-this\", "
+                                "\"your-api-key-here\", a sample/dummy value, or a hyphenated word-phrase). "
+                                "Still a finding — confirm it isn't a real credential before dismissing."),
         ])
         owasp_legend = legend_dl([
             ("__grp__", "Signal column"),
@@ -894,7 +935,9 @@ def main():
             ("Dangerous calls", "eval/exec/subprocess/rm-rf/deserialization (-8 each, cap 8 -> Decline)."),
             ("Network/tool calls", "HTTP/socket/fetch/CLI network calls (-2 each, cap 12)."),
             ("Soft credential hits", "References to api_key/token/password/secret, env reads (-5 each, cap 4)."),
-            ("Hard credential hits", "Literal secrets (keys/tokens/JWT/PEM) (-40 each, any -> Decline)."),
+            ("Hard credential hits", "Literal secrets (keys/tokens/JWT/PEM) (-40 each, any -> Decline). "
+                                      "Hits that look like placeholder values are noted but still counted "
+                                      "and still force Decline — verify before treating as a false positive."),
             ("Writes files", "Declared via metadata.dispatcher-writes-files (informational)."),
         ])
         tier_legend = legend_dl([
@@ -998,6 +1041,9 @@ Score breakdown (base 100):
             out += f"- **[{f['cat']}]** {f['why']}\n  - `{f['loc']}`"
             if f["evidence"]:
                 out += f" — `{f['evidence']}`"
+            if f.get("placeholder"):
+                out += "\n  - ⚑ _Looks like a placeholder value (e.g. \"change-this\", a generic example, or " \
+                       "a dictionary-word phrase) — still verify it isn't a real credential._"
             out += "\n  - Reviewer judgement: ☐ confirmed ☐ false positive ☐ documented-not-performed — notes: ____\n"
         return out
 
