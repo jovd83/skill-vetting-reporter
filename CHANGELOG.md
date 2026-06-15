@@ -14,6 +14,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [2.5.1] - 2026-06-15
+
+### Fixed
+- **Scanner-gate severity counts and recommendation for NVIDIA SkillSpector
+  (and any scanner that reports per-finding severities instead of aggregate
+  counts).** `run_scanners.py` previously only looked for aggregate count fields
+  (`critical`/`high_count`/…), so SkillSpector's `issues[].severity` array was
+  never tallied — the gate table showed **"none"** even on a `score=100.0`,
+  `DO_NOT_INSTALL` result, which read like an inverted-scale bug. The
+  recommendation lookup also did an unordered deep search that could return an
+  arbitrary *per-finding* `severity` (e.g. "MEDIUM") instead of the overall
+  verdict. Now the runner tallies severities from a findings/issues array when
+  no aggregate counts are present, and resolves the recommendation from
+  unambiguous verdict keys (`recommendation`/`verdict`/`max_severity`, e.g.
+  SkillSpector's `risk_assessment.recommendation = "DO_NOT_INSTALL"`), falling
+  back only to a *top-level* `severity` so per-finding severities can't pollute
+  it. The score≥51→BLOCK threshold itself was already correct and is unchanged;
+  affected BLOCKs were genuine, just under-reported in the table. Added a
+  boolean guard so a `critical: true`-style flag is not miscounted as 1.
+
 ## [2.5.0] - 2026-06-15
 
 ### Added
@@ -150,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.5.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.1
 [2.5.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.0
 [2.4.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.1
 [2.4.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.0

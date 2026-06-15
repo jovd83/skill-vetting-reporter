@@ -163,6 +163,54 @@ def _deep_find(obj, keys):
     return None
 
 
+def _find_list(obj, keys):
+    """Find the first list value whose key (case-insensitive) is in `keys`,
+    searching nested dicts/lists. Returns None if absent."""
+    keyset = {k.lower() for k in keys}
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            for k, v in cur.items():
+                if isinstance(k, str) and k.lower() in keyset and isinstance(v, list):
+                    return v
+                stack.append(v)
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return None
+
+
+def _top_level_str(obj, keys):
+    """Return a string value for one of `keys`, looking only at the top-level
+    dict (case-insensitive). Used for aggregate fields like a top-level
+    `severity` that must NOT be confused with per-finding severities buried in
+    a findings array."""
+    if isinstance(obj, dict):
+        low = {k.lower(): v for k, v in obj.items() if isinstance(k, str)}
+        for k in keys:
+            v = low.get(k.lower())
+            if isinstance(v, str):
+                return v
+    return None
+
+
+def _sev_bucket(value):
+    """Map a free-form severity/level string onto one of our four buckets, or
+    None for informational/safe levels that should not be counted."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    if v in ("critical", "crit"):
+        return "critical"
+    if v in ("high",):
+        return "high"
+    if v in ("medium", "moderate", "med"):
+        return "medium"
+    if v in ("low", "minor"):
+        return "low"
+    return None  # info / informational / safe / none / unknown -> not counted
+
+
 def normalize(tool_id, exit_code, stdout, stderr, parsed):
     """Best-effort extraction of (severity_counts, score, recommendation, block?)
     from heterogeneous scanner output. Tolerant by design: schemas differ and
@@ -172,16 +220,36 @@ def normalize(tool_id, exit_code, stdout, stderr, parsed):
     recommendation = None
 
     if parsed is not None:
-        # common shapes for counts
+        # 1) aggregate count fields, when a scanner provides them outright
         for sev in list(counts):
-            v = _deep_find(parsed, [sev, f"{sev}_count", f"num_{sev}", f"{sev}s"])
-            if isinstance(v, (int, float)):
+            v = _deep_find(parsed, [f"{sev}_count", f"num_{sev}", f"{sev}s", sev])
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
                 counts[sev] = int(v)
+        # 2) otherwise tally per-finding severities from a findings/issues array.
+        #    SkillSpector reports `issues[].severity` (and no aggregate counts),
+        #    so without this the table always showed "none" even on a score-100
+        #    DO_NOT_INSTALL result.
+        if not any(counts.values()):
+            items = _find_list(parsed, ["findings", "issues", "vulnerabilities",
+                                        "detections", "alerts", "results"]) or []
+            for it in items:
+                if isinstance(it, dict):
+                    bucket = _sev_bucket(it.get("severity") or it.get("level")
+                                         or it.get("risk") or it.get("max_severity"))
+                    if bucket:
+                        counts[bucket] += 1
         v = _deep_find(parsed, ["risk_score", "score", "risk"])
-        if isinstance(v, (int, float)):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
             score = float(v)
+        # recommendation/verdict: prefer unambiguous verdict-style keys (these
+        # are safe to find at any depth, e.g. SkillSpector's
+        # risk_assessment.recommendation = "DO_NOT_INSTALL"). Only fall back to a
+        # bare top-level `severity`; a deep search for `severity` would wrongly
+        # return an arbitrary per-finding severity from the issues array.
         r = _deep_find(parsed, ["recommendation", "install_recommendation",
-                                "verdict", "max_severity", "severity"])
+                                "verdict", "max_severity", "overall_severity"])
+        if not isinstance(r, str):
+            r = _top_level_str(parsed, ["severity"])
         if isinstance(r, str):
             recommendation = r
 
