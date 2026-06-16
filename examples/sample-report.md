@@ -1,4 +1,4 @@
-<!-- GENERATED EXAMPLE: produced by running the skill against examples/example-skill/ (--scanners ... --format both). Paths/timestamps/hashes differ on your machine. Shows the Profile & summary, Metrics & risk score (incl. the test-only-hits row and the Trim-to-install — findings from removable files section), the scanner gate, the OWASP map, and a dismissible 'webhook' false positive. -->
+<!-- GENERATED EXAMPLE: produced by running the skill against examples/example-skill/ (--scanners ... --format both). Paths/timestamps/hashes differ on your machine. Shows the Profile & summary, Metrics & risk score (incl. the test-only-hits row and the Trim-to-install — findings from removable files section), the scanner gate, the OWASP map, the Reviewer inventory (domains / exec sites / CLI tools / libraries / endpoints / listeners / downloads / installs / env / persistence / fs / dynamic), and a dismissible 'webhook' false positive. -->
 
 # Skill Vetting Report — `example-weather-fetcher`
 
@@ -26,7 +26,7 @@
 
 ## 0. External scanner gate (mandatory for Tier 1+)
 **Gate verdict: PASS** — at least one scanner ran and none returned a blocking result
-_Ran 2 of 4 known scanners at 2026-06-16T06:10:10Z._
+_Ran 2 of 4 known scanners at 2026-06-16T18:42:01Z._
 
 | Scanner | Status | Findings / score | Block? |
 |---|---|---|---|
@@ -72,8 +72,49 @@ _Ran 2 of 4 known scanners at 2026-06-16T06:10:10Z._
 ### Info (0)
 _None detected._
 
-### External domains referenced
-- `api.example.com` (1x) — NOT on allowlist
+
+## Reviewer inventory (what the skill reaches, runs, and pulls in)
+
+_Descriptive only — **not scored**. Aggregated across every file so a reviewer can see at a glance what the skill talks to, runs, downloads, and installs. Each entry is tagged with its context: no tag = it appears in executable code (it runs); **doc-only** = it appears only in prose/instructions and is **not** executed; **code + docs** = both. Imports / execution sites / env / filesystem / dynamic-exec are read from code files only; tools, endpoints, listeners, installs, downloads and persistence targets are read from every file._
+
+### Domains referenced
+- `api.example.com` (1×) — **NOT on allowlist** — `scripts/fetch.py`
+
+### Process & shell execution sites
+_None detected._
+
+### External CLI tools
+- `python3` — 1×: `scripts/fetch.py:1`
+
+### Libraries / imports
+**Standard library / runtime builtins:** `json`, `sys`, `urllib`
+
+### Outbound URLs / endpoints (non-allowlisted hosts)
+- `https://api.example.com/forecast?city=` — 1×: `scripts/fetch.py:12`
+
+### Network listeners / servers
+_None detected._
+
+### Downloads
+- `urlopen` — 1×: `scripts/fetch.py:13`
+
+### Installs
+_None detected._
+
+### Environment variables / secrets read
+_None detected._
+
+### Agent-config / persistence targets touched
+_None detected._
+
+### Files written / created
+_None detected._
+
+### Files or directories deleted
+_None detected._
+
+### Dynamic code execution
+_None detected._
 
 ## 4. OWASP Top 10 for Agentic Applications — coverage map
 | OWASP | Risk | Static signal | Reviewer must still judge | Advice — what good looks like |

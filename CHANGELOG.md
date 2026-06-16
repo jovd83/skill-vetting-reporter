@@ -4,15 +4,37 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.7.0] - 2026-06-16
 
 ### Added
+- **Reviewer inventory section** (Markdown + HTML, with a legend) — a descriptive,
+  **non-scored** aggregation of the skill's outward surface so a human reviewer can
+  see at a glance what it reaches, runs, downloads, and installs. Lists:
+  - **Domains referenced** (host, count, source files, allowlist status) — moved
+    here from §3 Findings.
+  - **Process & shell execution sites** — `subprocess`/`child_process`/`os.system`/
+    `execSync`/`Invoke-Expression`/… (code files only).
+  - **External CLI tools** — named tools referenced anywhere (`git`, `npm`, `curl`,
+    `docker`, `gh`, `pip`, …).
+  - **Libraries / imports** — split third-party vs standard-library / runtime builtins.
+  - **Outbound URLs / endpoints** — full http(s) URLs whose host is **not** on the
+    allowlist (allowlisted hosts are summarised under Domains).
+  - **Network listeners / servers** — `socket.bind`/`.listen(`/`createServer`/
+    `app.run`/`uvicorn.run`/Dockerfile `EXPOSE`/…
+  - **Downloads** — `curl`/`wget`/`requests.get`/`git clone`/… and direct archive URLs.
+  - **Installs** — `pip`/`npm`/`apt`/`brew`/`cargo`/… (incl. ones documented in a README).
+  - **Environment variables / secrets read** — `os.environ`/`getenv`/`process.env`/`$env:`.
+  - **Agent-config / persistence targets touched** — references that outlive the
+    skill (CLAUDE.md/AGENTS.md, settings.json, shell profiles, crontab, systemd,
+    `~/.ssh`, `~/.aws`, `.gitconfig`).
+  - **Files written / created**, **Files or directories deleted**, **Dynamic code
+    execution** (eval/exec/Function/compile, pickle/marshal).
 
-### Changed
-
-### Fixed
-
-### Removed
+  Every entry shows `file:line` locations (capped, with a "+N more" tail) and a
+  **context tag** — no tag = it appears in executable code (it runs), **doc-only** =
+  it appears only in prose/instructions and is not executed, **code + docs** = both.
+  Markdown-fence language tags (e.g. ```` ```bash ````) are filtered out to avoid
+  false positives. This section never affects the score, tier, or gate verdict.
 
 ## [2.6.0] - 2026-06-16
 
@@ -209,6 +231,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.7.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.7.0
 [2.6.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.6.0
 [2.5.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.1
 [2.5.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.0

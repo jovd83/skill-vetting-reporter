@@ -246,6 +246,148 @@ def finding_file(loc):
     return s
 
 
+# --- reviewer inventory: what the skill reaches, runs, downloads, installs ----
+# Descriptive aggregation only; NEVER scored. Surfaces observable references so a
+# human reviewer can see, at a glance, the skill's outward surface. Imports/exec/
+# env/filesystem/dynamic patterns are read from code files only; installs and
+# downloads are read from every text file (they are meaningful as documented
+# instructions in a README, too). Domains are aggregated separately (URL_RE).
+PY_STDLIB = getattr(sys, "stdlib_module_names", frozenset())
+NODE_BUILTINS = {"assert", "buffer", "child_process", "cluster", "console", "crypto",
+    "dgram", "dns", "events", "fs", "http", "http2", "https", "net", "os", "path",
+    "perf_hooks", "process", "querystring", "readline", "stream", "string_decoder",
+    "timers", "tls", "tty", "url", "util", "v8", "vm", "worker_threads", "zlib"}
+JS_EXT = {".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs"}
+
+INV_IMPORT_PY = re.compile(r"^\s*(?:import\s+([A-Za-z_][\w.]*)|from\s+([A-Za-z_][\w.]*)\s+import)", re.M)
+INV_IMPORT_JS = re.compile(r"""require\(\s*['"]([^'"]+)['"]\s*\)|import\b[^;\n]*?from\s*['"]([^'"]+)['"]""")
+INV_EXEC_MECH = re.compile(
+    r"(subprocess\.(?:run|call|Popen|check_output|check_call)|os\.system|os\.popen"
+    r"|child_process|execSync|spawnSync|Start-Process|Invoke-Expression)")
+INV_TOOLS = re.compile(
+    r"(?<!``)"                       # skip ```bash / ```python markdown fence language tags
+    r"""(?:^|[\s'"`\[(;&|>])"""
+    r"(git|gh|npm|npx|yarn|pnpm|pip3?|python3?|node|deno|bun|docker-compose|docker"
+    r"|kubectl|curl|wget|bash|pwsh|powershell|cmd|cargo|gem|brew|apt-get|apt|choco"
+    r"|winget|dotnet|uvx|uv|ssh|scp|rsync|tar|unzip|openssl|aws|gcloud|terraform)"
+    r"""(?=[\s'"`\\/]|$)""", re.M)
+INV_DOWNLOAD = re.compile(
+    r"""(curl|wget|Invoke-WebRequest|\biwr\b|urlretrieve|urlopen|requests\.get"""
+    r"""|http\.client|fetch\(|git\s+clone|pip\s+download)"""
+    r"""|(https?://[^\s'"]+\.(?:zip|tar\.gz|tgz|whl|exe|msi|deb|rpm|dmg|pkg|jar))""")
+INV_INSTALL = re.compile(
+    r"((?:pip3?|python3?\s+-m\s+pip|uv\s+pip|pipx)\s+install|uvx|npm\s+(?:install|i|add)"
+    r"|yarn\s+add|pnpm\s+add|npx|(?:apt-get|apt)\s+install|brew\s+install|cargo\s+install"
+    r"|go\s+(?:install|get)|gem\s+install|choco\s+install|winget\s+install|dotnet\s+add"
+    r"|conda\s+install)")
+INV_ENV = re.compile(
+    r"""os\.environ\.get\(\s*['"]([^'"]+)['"]|os\.environ\[\s*['"]([^'"]+)['"]\]"""
+    r"""|os\.getenv\(\s*['"]([^'"]+)['"]|process\.env\.([A-Za-z_]\w*)"""
+    r"""|process\.env\[\s*['"]([^'"]+)['"]\]|\$env:([A-Za-z_]\w*)""")
+INV_FSWRITE = re.compile(
+    r"""(open\([^)]*,\s*['"][^'"]*[wax+][^'"]*['"]|\.write_text|\.write_bytes"""
+    r"""|\.writeFileSync|\.writeFile|fs\.write|shutil\.(?:copy\w*|move)|os\.makedirs"""
+    r"""|os\.mkdir|Out-File|Set-Content)""")
+INV_FSDELETE = re.compile(
+    r"(os\.remove|os\.unlink|os\.rmdir|shutil\.rmtree|fs\.unlink|fs\.rm\b"
+    r"|Remove-Item|\brm\s+-[rfRF]+)")
+INV_DYNAMIC = re.compile(
+    r"(\beval\(|\bexec\(|new\s+Function\(|\bFunction\(|pickle\.loads|marshal\.loads|\bcompile\()")
+INV_ENDPOINT = re.compile(r"""https?://[^\s'"`)>\]}]+""")
+INV_LISTENER = re.compile(
+    r"(socket\.bind|\.listen\(|createServer|app\.run\(|uvicorn\.run|HTTPServer"
+    r"|http\.server|server\.bind|EXPOSE\s+\d+)")
+INV_PERSIST = re.compile(
+    r"(CLAUDE\.md|AGENTS?\.md|\.bashrc|\.zshrc|\.bash_profile|\.profile|crontab|/etc/cron"
+    r"|/etc/hosts|/etc/systemd|systemctl|launchctl|settings\.json|\.claude\b|\.gitconfig"
+    r"|~/\.aws|~/\.ssh|\.ssh/|authorized_keys|known_hosts)")
+
+# (key, section title) — render order for the inventory section.
+INVENTORY_SECTIONS = [
+    ("exec",     "Process & shell execution sites"),
+    ("tool",     "External CLI tools"),
+    ("library",  "Libraries / imports"),
+    ("endpoint", "Outbound URLs / endpoints (non-allowlisted hosts)"),
+    ("listener", "Network listeners / servers"),
+    ("download", "Downloads"),
+    ("install",  "Installs"),
+    ("env",      "Environment variables / secrets read"),
+    ("persist",  "Agent-config / persistence targets touched"),
+    ("fswrite",  "Files written / created"),
+    ("fsdelete", "Files or directories deleted"),
+    ("dynamic",  "Dynamic code execution"),
+]
+
+
+def _inv_line(text: str, idx: int) -> int:
+    return text.count("\n", 0, idx) + 1
+
+
+def _allowlisted_host(host: str) -> bool:
+    host = host.lower()
+    return any(host == a or host.endswith("." + a) for a in ALLOWLIST_DOMAINS)
+
+
+def extract_inventory(rel: str, ext: str, text: str):
+    """Yield (category, token, line, extra) tuples for the reviewer inventory."""
+    out = []
+    # installs / downloads / named tools / endpoints / listeners / persistence —
+    # meaningful in docs and code alike (the doc-vs-code context is marked later).
+    for m in INV_INSTALL.finditer(text):
+        out.append(("install", re.sub(r"\s+", " ", m.group(1)).strip().lower(), _inv_line(text, m.start()), None))
+    for m in INV_DOWNLOAD.finditer(text):
+        tok = m.group(1) or m.group(2) or m.group(0)
+        out.append(("download", re.sub(r"\s+", " ", tok).strip(), _inv_line(text, m.start()), None))
+    for m in INV_TOOLS.finditer(text):
+        out.append(("tool", m.group(1).lower(), _inv_line(text, m.start()), None))
+    for m in INV_ENDPOINT.finditer(text):
+        url = m.group(0).rstrip(".,);")
+        host = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].replace("\\", "")
+        if "." in host and not _allowlisted_host(host):  # skip regex-literal / non-host noise
+            out.append(("endpoint", url[:80], _inv_line(text, m.start()), None))
+    for m in INV_LISTENER.finditer(text):
+        out.append(("listener", m.group(1).split("(")[0].strip(), _inv_line(text, m.start()), None))
+    for m in INV_PERSIST.finditer(text):
+        out.append(("persist", m.group(1).strip(), _inv_line(text, m.start()), None))
+    if ext not in EXEC_EXT:
+        return out
+    # imports (code only)
+    if ext == ".py":
+        for m in INV_IMPORT_PY.finditer(text):
+            mod = (m.group(1) or m.group(2) or "").split(".")[0]
+            if mod:
+                out.append(("library", mod, _inv_line(text, m.start()),
+                            "stdlib" if mod in PY_STDLIB else "third-party"))
+    elif ext in JS_EXT:
+        for m in INV_IMPORT_JS.finditer(text):
+            spec = m.group(1) or m.group(2) or ""
+            if not spec or spec[0] in "./":
+                continue
+            if spec.startswith("@"):
+                pkg = "/".join(spec.split("/")[:2])
+            else:
+                pkg = spec.split("/")[0]
+            bare = pkg[5:] if pkg.startswith("node:") else pkg
+            out.append(("library", pkg, _inv_line(text, m.start()),
+                        "builtin" if (pkg.startswith("node:") or bare in NODE_BUILTINS) else "third-party"))
+    # process/shell execution sites (code only)
+    for m in INV_EXEC_MECH.finditer(text):
+        out.append(("exec", m.group(1), _inv_line(text, m.start()), None))
+    # env vars / secrets read
+    for m in INV_ENV.finditer(text):
+        var = next((g for g in m.groups() if g), None)
+        out.append(("env", var or "(dynamic)", _inv_line(text, m.start()), None))
+    # filesystem writes / deletes
+    for m in INV_FSWRITE.finditer(text):
+        out.append(("fswrite", m.group(1).split("(")[0].strip(), _inv_line(text, m.start()), None))
+    for m in INV_FSDELETE.finditer(text):
+        out.append(("fsdelete", m.group(1).strip(), _inv_line(text, m.start()), None))
+    # dynamic code execution
+    for m in INV_DYNAMIC.finditer(text):
+        out.append(("dynamic", m.group(1).split("(")[0].strip(), _inv_line(text, m.start()), None))
+    return out
+
+
 # Coarse category taxonomy, inferred from metadata or description keywords.
 CATEGORY_KEYWORDS = [
     ("Security / governance", r"vet|securit|audit|scan|owasp|complian|threat|risk|review"),
@@ -493,6 +635,7 @@ def main():
 
     inventory, findings, domains, toolchain_hits = [], [], {}, []
     domain_src = {}  # domain -> set of files it was seen in (for trim attribution)
+    caps = {key: {} for key, _title in INVENTORY_SECTIONS}  # reviewer inventory
     skill_md_text, fm = None, None
     scoring = {b[0]: 0 for b in SCORING_BUCKETS}  # dangerous/network/soft_cred/hard_cred/misplaced
     scoring["hard_cred_placeholder"] = 0  # subset of hard_cred whose value looks like a placeholder
@@ -535,6 +678,16 @@ def main():
                 domains.setdefault(d, 0)
                 domains[d] += 1
                 domain_src.setdefault(d, set()).add(rel)
+            for cat, token, line, extra in extract_inventory(rel, ext, text):
+                slot = caps[cat].setdefault(token, {"locs": [], "extra": extra, "n": 0,
+                                                    "code": False, "doc": False})
+                slot["n"] += 1
+                if not slot["extra"] and extra:
+                    slot["extra"] = extra
+                slot["code" if ext in EXEC_EXT else "doc"] = True
+                loc = f"{rel.replace(chr(92), '/')}:{line}"
+                if loc not in slot["locs"] and len(slot["locs"]) < 8:
+                    slot["locs"].append(loc)
             if p.name == "SKILL.md":
                 skill_md_text = text
                 fm = parse_frontmatter(text)
@@ -934,12 +1087,62 @@ def main():
         find_body = (f'<h3>Critical ({len(crit)})</h3>{finding_rows(crit)}'
                      f'<h3>Warnings ({len(warn)})</h3>{finding_rows(warn)}'
                      f'<h3>Info ({len(info)})</h3>{finding_rows(info)}')
+
+        # --- Reviewer inventory ---
+        INV_TOKEN_CAP = 25
+
+        def inv_locs_html(slot):
+            shown = slot["locs"][:5]
+            s = ", ".join(f'<code>{esc(l)}</code>' for l in shown)
+            extra = slot["n"] - len(shown)
+            return s + (f' <span class="note">+{extra} more</span>' if extra > 0 else "")
+
+        def ctx_badge_html(slot):
+            if slot.get("doc") and not slot.get("code"):
+                return ' <span class="badge info">doc-only</span>'
+            if slot.get("doc") and slot.get("code"):
+                return ' <span class="badge info">code + docs</span>'
+            return ""
+        inv_parts = []
         if domains:
             dom_items = []
             for d, c in sorted(domains.items()):
                 tag = ' <span class="badge warn">not allowlisted</span>' if d in unknown_domains else ''
-                dom_items.append(f'<li><code>{esc(d)}</code> ({c}×){tag}</li>')
-            find_body += f'<h3>External domains referenced</h3><ul>{"".join(dom_items)}</ul>'
+                srcs = sorted(domain_src.get(d, []))
+                ctx = "" if any(Path(s).suffix.lower() in EXEC_EXT for s in srcs) else ' <span class="badge info">doc-only</span>'
+                src = ", ".join(f'<code>{esc(s.replace(chr(92), "/"))}</code>' for s in srcs[:5])
+                dom_items.append(f'<li><code>{esc(d)}</code> ({c}×){tag}{ctx}{(" — " + src) if src else ""}</li>')
+            inv_parts.append(f'<h3>Domains referenced</h3><ul>{"".join(dom_items)}</ul>')
+        else:
+            inv_parts.append('<h3>Domains referenced</h3><p class="empty">None.</p>')
+        for key, title in INVENTORY_SECTIONS:
+            slot = caps[key]
+            if not slot:
+                inv_parts.append(f'<h3>{esc(title)}</h3><p class="empty">None detected.</p>')
+                continue
+            if key == "library":
+                third = sorted(t for t, s in slot.items() if s["extra"] == "third-party")
+                builtin = sorted(t for t, s in slot.items() if s["extra"] in ("stdlib", "builtin"))
+                body = ""
+                if third:
+                    body += "<p><strong>Third-party / external:</strong> " + ", ".join(f'<code>{esc(t)}</code>' for t in third) + "</p>"
+                if builtin:
+                    body += "<p><strong>Standard library / runtime builtins:</strong> " + ", ".join(f'<code>{esc(t)}</code>' for t in builtin) + "</p>"
+                inv_parts.append(f'<h3>{esc(title)}</h3>{body}')
+                continue
+            toks = sorted(slot)
+            items = "".join(f'<li><code>{esc(t)}</code> — {slot[t]["n"]}×{ctx_badge_html(slot[t])}: {inv_locs_html(slot[t])}</li>'
+                            for t in toks[:INV_TOKEN_CAP])
+            if len(toks) > INV_TOKEN_CAP:
+                items += f'<li class="note">…and {len(toks) - INV_TOKEN_CAP} more</li>'
+            inv_parts.append(f'<h3>{esc(title)}</h3><ul>{items}</ul>')
+        inventory_body = (
+            '<p class="note">Descriptive only — <strong>not scored</strong>. Aggregated across every file so a '
+            'reviewer can see what the skill talks to, runs, downloads, and installs. Context tags: no tag = appears '
+            'in executable code (it runs); <span class="badge info">doc-only</span> = appears only in prose and is '
+            'not executed; <span class="badge info">code + docs</span> = both. Imports / execution sites / env / '
+            'filesystem / dynamic-exec are read from code files only; tools, endpoints, listeners, installs, '
+            'downloads and persistence targets from every file.</p>' + "".join(inv_parts))
 
         # --- §4 OWASP ---
         owasp = ['<table><thead><tr><th>OWASP</th><th>Risk</th><th>Static signal</th>'
@@ -1106,6 +1309,31 @@ def main():
                              "(test, doc, backup, example, CI, or dev-config). Deleting that file before "
                              "install clears the finding without reducing the skill — see Metrics & risk score."),
         ])
+        inventory_legend = legend_dl([
+            ("__grp__", "Context tags (per entry)"),
+            ("doc-only", "Appears only in prose/instructions (a .md/doc file) — it is NOT executed."),
+            ("code + docs", "Appears in both executable code and documentation."),
+            ("(no tag)", "Appears in executable code — it runs."),
+            ("__grp__", "What each list aggregates (descriptive, not scored)"),
+            ("Domains referenced", "Every host in a URL anywhere in the skill, with count, context and where; "
+                                   "'not allowlisted' = not on the domain allowlist."),
+            ("Process & shell execution sites", "Code that spawns a process/shell: subprocess, child_process, "
+                                                "os.system/popen, execSync/spawnSync, Invoke-Expression (code files only)."),
+            ("External CLI tools", "Named command-line tools referenced anywhere: git, npm, curl, docker, gh, pip, …"),
+            ("Libraries / imports", "Modules the code imports, split into third-party vs standard-library / runtime builtins."),
+            ("Outbound URLs / endpoints", "Full http(s) URLs the skill references whose host is NOT on the allowlist "
+                                          "(allowlisted hosts are summarised under Domains)."),
+            ("Network listeners / servers", "Server/port bindings: socket.bind, .listen(, createServer, app.run, "
+                                            "uvicorn.run, Dockerfile EXPOSE, …"),
+            ("Downloads", "Mechanisms that fetch remote content (curl/wget/requests.get/git clone/…) and direct archive URLs."),
+            ("Installs", "Package/tool install commands (pip/npm/apt/brew/cargo/…) — including ones documented in a README."),
+            ("Environment variables / secrets read", "Env vars the code reads (os.environ/getenv, process.env, $env:) — possible secrets."),
+            ("Agent-config / persistence targets touched", "References to things that outlive the skill: CLAUDE.md/AGENTS.md, "
+                                                           "settings.json, shell profiles, crontab, systemd, ~/.ssh, ~/.aws, .gitconfig."),
+            ("Files written / created", "Filesystem writes (open(…, 'w'), write_text, fs.writeFile, Out-File, …)."),
+            ("Files or directories deleted", "Filesystem deletions (os.remove, shutil.rmtree, Remove-Item, rm -rf, …)."),
+            ("Dynamic code execution", "eval/exec/Function/compile and pickle/marshal deserialization sites."),
+        ])
         owasp_legend = legend_dl([
             ("__grp__", "Signal column"),
             ("clear", "Checked: the pattern scan ran for this category and matched no known risk pattern. "
@@ -1171,6 +1399,7 @@ def main():
             section("1", "Identity", ident),
             section("2", "File inventory", inv_body),
             section("3", "Findings", find_body, findings_legend),
+            section("", "Reviewer inventory — what the skill reaches, runs, and pulls in", inventory_body, inventory_legend),
             section("4", "OWASP Top 10 for Agentic Applications — coverage map", owasp_body, owasp_legend),
             section("", "Metrics & risk score", metrics_body, metrics_legend),
             section("5", "Red-flag checklist", checklist),
@@ -1184,6 +1413,66 @@ def main():
                 .replace("{{GENERATED_LINE}}", gen)
                 .replace("{{STAT_CARDS}}", stat_cards)
                 .replace("{{SECTIONS}}", sections))
+
+    INV_TOKEN_CAP = 25  # max distinct tokens shown per inventory list
+
+    def _ctx_tag_md(slot):
+        if slot.get("doc") and not slot.get("code"):
+            return " _(doc-only — not executed)_"
+        if slot.get("doc") and slot.get("code"):
+            return " _(code + docs)_"
+        return ""
+
+    def _inv_locs_md(slot):
+        shown = slot["locs"][:5]
+        s = ", ".join(f"`{l}`" for l in shown)
+        extra = slot["n"] - len(shown)
+        return s + (f" +{extra} more" if extra > 0 else "")
+
+    def build_inventory_md():
+        blocks = []
+        # Domains (reuse the URL aggregation; also drives trim attribution)
+        if domains:
+            dl = []
+            for d, c in sorted(domains.items()):
+                tag = " — **NOT on allowlist**" if d in unknown_domains else ""
+                srcs = sorted(domain_src.get(d, []))
+                in_code = any(Path(s).suffix.lower() in EXEC_EXT for s in srcs)
+                ctx = "" if in_code else " _(doc-only)_"
+                src = ", ".join(f"`{s.replace(chr(92), '/')}`" for s in srcs[:5])
+                dl.append(f"- `{d}` ({c}×){tag}{ctx}" + (f" — {src}" if src else ""))
+            blocks.append("### Domains referenced\n" + "\n".join(dl))
+        else:
+            blocks.append("### Domains referenced\n_None._")
+        for key, title in INVENTORY_SECTIONS:
+            slot = caps[key]
+            if not slot:
+                blocks.append(f"### {title}\n_None detected._")
+                continue
+            if key == "library":
+                third = sorted(t for t, s in slot.items() if s["extra"] == "third-party")
+                builtin = sorted(t for t, s in slot.items() if s["extra"] in ("stdlib", "builtin"))
+                sub = []
+                if third:
+                    sub.append("**Third-party / external:** " + ", ".join(f"`{t}`" for t in third))
+                if builtin:
+                    sub.append("**Standard library / runtime builtins:** " + ", ".join(f"`{t}`" for t in builtin))
+                blocks.append(f"### {title}\n" + "\n\n".join(sub))
+                continue
+            toks = sorted(slot)
+            lines = [f"- `{t}` — {slot[t]['n']}×{_ctx_tag_md(slot[t])}: {_inv_locs_md(slot[t])}"
+                     for t in toks[:INV_TOKEN_CAP]]
+            if len(toks) > INV_TOKEN_CAP:
+                lines.append(f"- _…and {len(toks) - INV_TOKEN_CAP} more_")
+            blocks.append(f"### {title}\n" + "\n".join(lines))
+        return ("## Reviewer inventory (what the skill reaches, runs, and pulls in)\n\n"
+                "_Descriptive only — **not scored**. Aggregated across every file so a reviewer can see at a "
+                "glance what the skill talks to, runs, downloads, and installs. Each entry is tagged with its "
+                "context: no tag = it appears in executable code (it runs); **doc-only** = it appears only in "
+                "prose/instructions and is **not** executed; **code + docs** = both. Imports / execution sites / "
+                "env / filesystem / dynamic-exec are read from code files only; tools, endpoints, listeners, "
+                "installs, downloads and persistence targets are read from every file._\n\n"
+                + "\n\n".join(blocks) + "\n")
 
     def build_profile_md():
         links = ", ".join(author_links) if author_links else "—"
@@ -1331,9 +1620,8 @@ Found only in test files (not scored):
 {fmt(warn)}
 ### Info ({len(info)})
 {fmt(info)}
-### External domains referenced
-{chr(10).join(f"- `{d}` ({c}x){' — NOT on allowlist' if d in unknown_domains else ''}" for d, c in sorted(domains.items())) if domains else "_None._"}
 
+{build_inventory_md()}
 ## 4. OWASP Top 10 for Agentic Applications — coverage map
 {build_owasp_section()}
 {build_metrics_md()}
