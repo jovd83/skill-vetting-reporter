@@ -4,15 +4,44 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.6.0] - 2026-06-16
 
 ### Added
+- **Test-only bucket — security patterns found only in test code no longer count
+  against the score.** Dangerous-call, network/tool, and soft-credential patterns
+  that appear *only* in test-path files (`tests/`, `__tests__/`, `spec/`,
+  `*.test.js`/`*.spec.ts`, `test_*.py`/`*_test.py`/`conftest.py`) are tallied in a
+  separate, non-scored **"Found only in test files"** list with the note that
+  deleting the tests would not reduce what the skill itself can do. A new
+  "Test-only hits (not scored)" metric row reports the count. Hard-credential hits
+  are deliberately **never** split out this way — a real secret in a fixture is
+  still a real secret. Both report formats get a matching legend entry. (Example:
+  a skill whose only dangerous calls are `child_process`/`spawnSync` in its Jest
+  harness now scores on its runtime code, not its tests.)
+- **Trim-to-install analysis — shows which findings come from files the installed
+  skill never loads.** A new **"Trim-to-install — findings from removable files"**
+  subsection attributes each heuristic finding to its source file and classifies
+  that file as runtime-essential or removable: test, human docs
+  (README/CHANGELOG/CONTRIBUTING/…), backups (`*.bak`/`*.orig`/`*.tmp`),
+  examples/fixtures/mocks, CI config (`.github/`, `.gitlab-ci.yml`, …), or
+  lint/build config (`.eslintrc`, `tsconfig`, `jest.config`, `.gitignore`, …). It
+  lists the removable files with their per-file critical/warning/info counts,
+  projects what the counts would be after deleting them, and — when the heuristic
+  tier would improve and the scanner gate is not a BLOCK — notes the tier change.
+  Each attributed finding also carries an inline `🗑` marker (Markdown) /
+  `🗑 removable` badge (HTML). `SKILL.md`, `scripts/`, `references/`, `assets/`,
+  and `LICENSE` are always treated as essential, and hard-credential hits are
+  never treated as removable. **Additive only** — it never changes the score,
+  tier, or gate verdict; it just explains where a score comes from and which
+  unnecessary files a user could drop before install to clear those findings.
+- **External-domain findings now attribute to their source file(s)**, so a stray
+  domain referenced only in a README or example is surfaced (and picked up by the
+  trim-to-install analysis) rather than reported without a location.
 
 ### Changed
-
-### Fixed
-
-### Removed
+- Domain allowlist: added `img.shields.io` (shields.io badges) and
+  `buymeacoffee.com` (sponsor links), so the standard README badge/sponsor block
+  used by the project template no longer raises external-domain findings.
 
 ## [2.5.1] - 2026-06-15
 
@@ -170,6 +199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.6.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.6.0
 [2.5.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.1
 [2.5.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.0
 [2.4.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.4.1

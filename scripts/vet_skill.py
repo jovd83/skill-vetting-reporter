@@ -111,7 +111,8 @@ OWASP_ASI = [
 URL_RE = re.compile(r"https?://([a-zA-Z0-9.-]+)")
 ALLOWLIST_DOMAINS = {"github.com", "raw.githubusercontent.com", "agentskills.io",
                      "anthropic.com", "docs.claude.com", "platform.claude.com",
-                     "skills.sh", "npmjs.com", "pypi.org", "owasp.org"}
+                     "skills.sh", "npmjs.com", "pypi.org", "owasp.org",
+                     "img.shields.io", "buymeacoffee.com"}
 TOOLCHAIN_FILES = [
     (re.compile(r".*\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$"), "JS test file - auto-executed by Jest/Vitest on `npm test` or IDE save"),
     (re.compile(r"(^|/)conftest\.py$|.*_test\.py$|(^|/)test_.*\.py$"), "Python test file - auto-collected by pytest"),
@@ -161,7 +162,89 @@ SCORING_BUCKETS = [
     ("hard_cred",   HARD_CREDENTIAL_PATTERNS,  40,      999,  "Hard credential hits"),
     ("misplaced",   None,                      5,       4,    "Misplaced scripts"),
 ]
+BUCKET_LABELS = {key: label for key, _pat, _per, _cap, label in SCORING_BUCKETS}
 EXPECTED_SCRIPT_DIRS = {"scripts", "tests"}  # code here is expected; elsewhere = misplaced
+
+# Buckets where a hit found only in test-path code doesn't represent a
+# capability of the skill itself: deleting the tests would not reduce what an
+# agent loading the skill can do. Hard-credential hits are excluded - a real
+# secret committed to a test fixture is still a real secret regardless of
+# where it lives.
+TEST_SPLIT_BUCKETS = {"dangerous", "network", "soft_cred"}
+
+# Matches files that are test-only surface: under a tests/__tests__/spec
+# directory, or named like a JS/TS or Python test file.
+TEST_PATH_RX = re.compile(
+    r"(^|[/\\])(tests?|__tests__|spec)[/\\]"
+    r"|\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$"
+    r"|(^|[/\\])conftest\.py$|_test\.py$|(^|[/\\])test_.*\.py$",
+    re.IGNORECASE,
+)
+
+
+def is_test_path(rel: str) -> bool:
+    """True if `rel` is test-only code - patterns found here are reported
+    separately and don't affect the heuristic score (see TEST_SPLIT_BUCKETS)."""
+    return bool(TEST_PATH_RX.search(rel.replace("\\", "/")))
+
+
+# Files an installed skill does not need to do its job. Deleting them before
+# install removes whatever findings they carry without reducing what the skill
+# can do at runtime - so a reviewer can clear "noise" flags by shipping a
+# trimmed copy. SKILL.md, scripts/, references/, assets/ and LICENSE are always
+# treated as essential and never appear here.
+REMOVABLE_CLASSES = [
+    ("test",    TEST_PATH_RX),
+    ("backup",  re.compile(r"\.(bak|orig|old|tmp|swp|swo)$|~$", re.IGNORECASE)),
+    ("docs",    re.compile(r"(^|[/\\])(README|CHANGELOG|CONTRIBUTING|CODE_OF_CONDUCT|"
+                           r"SECURITY|HISTORY|AUTHORS|NOTICE|TODO|ROADMAP)(\.[A-Za-z0-9]+)?$",
+                           re.IGNORECASE)),
+    ("example", re.compile(r"(^|[/\\])(examples?|fixtures?|samples?|demos?|mocks?|__mocks__)([/\\]|$)",
+                           re.IGNORECASE)),
+    ("ci",      re.compile(r"(^|[/\\])\.github([/\\]|$)|(^|[/\\])\.gitlab-ci\.ya?ml$"
+                           r"|(^|[/\\])\.circleci([/\\]|$)|(^|[/\\])azure-pipelines\.ya?ml$"
+                           r"|(^|[/\\])\.travis\.ya?ml$|(^|[/\\])appveyor\.ya?ml$", re.IGNORECASE)),
+    ("config",  re.compile(r"(^|[/\\])(\.gitignore|\.gitattributes|\.editorconfig|\.npmignore|"
+                           r"\.eslintrc[^/\\]*|\.prettier[^/\\]*|tsconfig[^/\\]*\.json|"
+                           r"jest\.config\.[A-Za-z]+|vitest\.config\.[A-Za-z]+|"
+                           r"\.pre-commit-config\.ya?ml)$", re.IGNORECASE)),
+]
+REMOVABLE_REASON = {
+    "test":    "test file — not loaded at runtime",
+    "backup":  "backup/scratch leftover — safe to drop",
+    "docs":    "human documentation — not loaded by the agent",
+    "example": "example/fixture content — not part of the runtime",
+    "ci":      "CI/automation config — only runs in the repo",
+    "config":  "dev tooling config — lint/build only",
+    "mixed":   "removable files",
+}
+ESSENTIAL_BASENAMES = {"SKILL.md", "LICENSE", "LICENSE.md", "LICENSE.txt"}
+
+
+def classify_removable(rel: str):
+    """Return (reason_key, human_reason) if the installed skill does not need
+    `rel` at runtime, else (None, None)."""
+    r = rel.replace("\\", "/")
+    base = r.rsplit("/", 1)[-1]
+    if base in ESSENTIAL_BASENAMES:
+        return (None, None)
+    for key, rx in REMOVABLE_CLASSES:
+        if rx.search(r):
+            return (key, REMOVABLE_REASON[key])
+    return (None, None)
+
+
+def finding_file(loc):
+    """Best-effort source file for a finding from its `loc` (e.g. 'tests/x.js:4'
+    -> 'tests/x.js'). Returns None for aggregate ('-') or absolute-path locs."""
+    if not loc or loc == "-":
+        return None
+    s = loc.replace("\\", "/")
+    s = re.sub(r":\d+$", "", s)            # strip trailing :line
+    if re.match(r"^[A-Za-z]:/", s) or s.startswith("/"):
+        return None                        # absolute path = root-level meta finding
+    return s
+
 
 # Coarse category taxonomy, inferred from metadata or description keywords.
 CATEGORY_KEYWORDS = [
@@ -199,13 +282,21 @@ def is_placeholder_value(value: str) -> bool:
     return bool(PLACEHOLDER_MARKERS_RX.search(v) or READABLE_PHRASE_RX.match(v))
 
 
-def count_scoring_hits(text, counts):
-    """Accumulate per-bucket regex-hit counts for one code file's text."""
+def count_scoring_hits(text, counts, counts_test, is_test):
+    """Accumulate per-bucket regex-hit counts for one code file's text.
+
+    For TEST_SPLIT_BUCKETS, hits in a test-only file (is_test) are tallied
+    into `counts_test` instead of `counts` - they don't affect the score."""
     for key, patterns, _per, _cap, _lbl in SCORING_BUCKETS:
         if patterns is None:
             continue
         for i, rx in enumerate(patterns):
             hits = rx.findall(text)
+            if not hits:
+                continue
+            if is_test and key in TEST_SPLIT_BUCKETS:
+                counts_test[key] += len(hits)
+                continue
             counts[key] += len(hits)
             if key == "hard_cred" and i == 0:
                 counts["hard_cred_placeholder"] = (counts.get("hard_cred_placeholder", 0)
@@ -401,9 +492,11 @@ def main():
     base = root.parent if root.is_file() else root
 
     inventory, findings, domains, toolchain_hits = [], [], {}, []
+    domain_src = {}  # domain -> set of files it was seen in (for trim attribution)
     skill_md_text, fm = None, None
     scoring = {b[0]: 0 for b in SCORING_BUCKETS}  # dangerous/network/soft_cred/hard_cred/misplaced
     scoring["hard_cred_placeholder"] = 0  # subset of hard_cred whose value looks like a placeholder
+    scoring_test = {k: 0 for k in TEST_SPLIT_BUCKETS}  # same buckets, but hits found only in tests/
     text_blob = []  # for category inference
 
     for p in files:
@@ -434,13 +527,14 @@ def main():
                 continue
             scan_text(rel, text, findings)
             if ext in EXEC_EXT:  # score code files only; documented patterns don't inflate
-                count_scoring_hits(text, scoring)
+                count_scoring_hits(text, scoring, scoring_test, is_test_path(rel))
             if p.name in ("SKILL.md", "README.md") or ext == ".md":
                 text_blob.append(text[:4000])
             for m in URL_RE.finditer(text):
                 d = m.group(1).lower()
                 domains.setdefault(d, 0)
                 domains[d] += 1
+                domain_src.setdefault(d, set()).add(rel)
             if p.name == "SKILL.md":
                 skill_md_text = text
                 fm = parse_frontmatter(text)
@@ -479,9 +573,11 @@ def main():
     unknown_domains = {d: c for d, c in domains.items()
                        if not any(d == a or d.endswith("." + a) for a in ALLOWLIST_DOMAINS)}
     if unknown_domains:
+        src_files = sorted({rel for d in unknown_domains for rel in domain_src.get(d, ())})
         findings.append({"sev": SEV_WARN, "cat": "External domains",
                          "why": "Non-allowlisted domains referenced - verify each",
-                         "loc": "-", "evidence": ", ".join(sorted(unknown_domains))[:300]})
+                         "loc": "-", "files": src_files,
+                         "evidence": ", ".join(sorted(unknown_domains))[:300]})
 
     crit = [f for f in findings if f["sev"] == SEV_CRIT]
     warn = [f for f in findings if f["sev"] == SEV_WARN]
@@ -489,22 +585,69 @@ def main():
     has_exec = any(i["kind"] == "executable" for i in inventory)
     has_bin = any(i["kind"] == "binary/archive" for i in inventory)
 
-    if has_bin or len(crit) >= 2:
-        tier, tier_why = "REJECT / Tier 3", "binaries present or 2+ critical findings"
-    elif crit:
-        tier, tier_why = "Tier 3 (deep review)", "at least one critical finding to confirm or dismiss"
-    elif has_exec and warn:
-        tier, tier_why = "Tier 2 (standard review)", "executable content with warnings"
-    elif has_exec or warn:
-        tier, tier_why = "Tier 1-2 (depends on source & blast radius)", "executable content or warnings present"
-    else:
-        tier, tier_why = "Tier 0-1 (depends on source & blast radius)", "instructions-only, no known patterns detected"
+    def heuristic_tier(n_crit, n_warn, exec_present, bin_present):
+        if bin_present or n_crit >= 2:
+            return "REJECT / Tier 3", "binaries present or 2+ critical findings"
+        if n_crit:
+            return "Tier 3 (deep review)", "at least one critical finding to confirm or dismiss"
+        if exec_present and n_warn:
+            return "Tier 2 (standard review)", "executable content with warnings"
+        if exec_present or n_warn:
+            return "Tier 1-2 (depends on source & blast radius)", "executable content or warnings present"
+        return "Tier 0-1 (depends on source & blast radius)", "instructions-only, no known patterns detected"
+
+    tier, tier_why = heuristic_tier(len(crit), len(warn), has_exec, has_bin)
 
     # --- external scanner gate (run_scanners.py) folds into tier + report ----
     gate_verdict = gate["gate"] if gate else "NOT RUN"
     if gate and gate["gate"] == "BLOCK":
         tier = "REJECT / Tier 3"
         tier_why = "external scanner gate returned a blocking result (" + ", ".join(gate["blocking"]) + ")"
+
+    # --- trim-to-install: which findings come from files the skill doesn't need ---
+    # keys normalized to forward slashes so they match finding_file()'s output
+    removable_index = {}  # rel(/) -> (reason_key, human_reason)
+    for inv in inventory:
+        rk, rw = classify_removable(inv["rel"])
+        if rk:
+            removable_index[inv["rel"].replace("\\", "/")] = (rk, rw)
+
+    def finding_sources(f):
+        if f.get("files") is not None:
+            return [s.replace("\\", "/") for s in f["files"]]
+        ff = finding_file(f.get("loc"))
+        return [ff] if ff else []
+
+    removable_stats = {SEV_CRIT: 0, SEV_WARN: 0, SEV_INFO: 0}
+    removable_by_file = {}  # rel -> {"reason","why","CRITICAL","WARNING","INFO"}
+    for f in findings:
+        srcs = finding_sources(f)
+        if srcs and all(s in removable_index for s in srcs):
+            reasons = {removable_index[s][0] for s in srcs}
+            key = next(iter(reasons)) if len(reasons) == 1 else "mixed"
+            f["removable"] = key
+            f["removable_why"] = REMOVABLE_REASON[key]
+            removable_stats[f["sev"]] += 1
+            primary = srcs[0]  # count each finding once, against its first source
+            rk, rw = removable_index[primary]
+            b = removable_by_file.setdefault(
+                primary, {"reason": rk, "why": rw, SEV_CRIT: 0, SEV_WARN: 0, SEV_INFO: 0})
+            b[f["sev"]] += 1
+    removable_total = sum(removable_stats.values())
+    trim_sorted = sorted(removable_by_file.items(),
+                         key=lambda kv: (kv[1][SEV_CRIT], kv[1][SEV_WARN], kv[1][SEV_INFO]),
+                         reverse=True)
+
+    # projected heuristic counts/tier if the removable files were deleted
+    proj_crit = len(crit) - removable_stats[SEV_CRIT]
+    proj_warn = len(warn) - removable_stats[SEV_WARN]
+    proj_info = len(info) - removable_stats[SEV_INFO]
+    has_exec_after = any(i["kind"] == "executable" and i["rel"].replace("\\", "/") not in removable_index
+                         for i in inventory)
+    has_bin_after = any(i["kind"] == "binary/archive" and i["rel"].replace("\\", "/") not in removable_index
+                        for i in inventory)
+    proj_tier, _ = heuristic_tier(proj_crit, proj_warn, has_exec_after, has_bin_after)
+    tier_changes = removable_total > 0 and proj_tier != tier and gate_verdict != "BLOCK"
 
     # --- structural metrics + risk score (additive; never replaces the tier) ---
     name = (fm or {}).get("name", root.name)
@@ -532,6 +675,8 @@ def main():
     metrics["misplaced"] = sum(1 for i in inventory if _is_script(i["rel"])
                                and _topdir(i["rel"]) not in EXPECTED_SCRIPT_DIRS)
     scoring["misplaced"] = metrics["misplaced"]
+    metrics["test_only"] = dict(scoring_test)
+    metrics["test_only_total"] = sum(scoring_test.values())
 
     def _truthy(v):
         return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
@@ -579,6 +724,19 @@ def main():
         risk_bits = (f"{metrics['dangerous']} dangerous call(s), {metrics['network']} network/tool call(s), "
                      f"{metrics['soft_cred']} soft- and {metrics['hard_cred']} hard-credential hit(s), "
                      f"{metrics['misplaced']} misplaced script(s)")
+        if metrics["test_only_total"]:
+            risk_bits += (f", plus {metrics['test_only_total']} hit(s) found only in tests/ "
+                          "(not scored)")
+        trim_bits = ""
+        if removable_total:
+            trim_bits = (
+                f" Of the heuristic findings, **{removable_total}** "
+                f"({removable_stats[SEV_CRIT]} critical / {removable_stats[SEV_WARN]} warning / "
+                f"{removable_stats[SEV_INFO]} info) come from files the installed skill does not need "
+                f"(tests, docs, backups, examples) — deleting those before install would leave "
+                f"{proj_crit} critical / {proj_warn} warning / {proj_info} info"
+                + (f" and lower the heuristic tier to **{proj_tier}**" if tier_changes else "")
+                + " (see Metrics & risk score; re-run the scanner gate on the trimmed copy).")
         report_summary = (
             f"`{name}` is a **{category}** skill — {what_it_does[:200]}. The external scanner gate returned "
             f"**{gate_verdict}** and static heuristics produced {sev_bits}; the suggested review tier is "
@@ -586,7 +744,9 @@ def main():
             f"The structural/risk scan found {risk_bits}, giving a heuristic risk score of **{score}/100** → "
             f"**{recommendation}**"
             + (f" (forced by {', '.join(forced)})" if forced else "")
-            + f". Author is **{author or 'unknown'}** (trust: {author_trust}). This score is a mechanical aid, "
+            + f". Author is **{author or 'unknown'}** (trust: {author_trust})."
+            + trim_bits
+            + " This score is a mechanical aid, "
             "not a verdict — work the findings (§3), the OWASP map, and the reviewer judgement before approving.")
 
     def build_gate_section():
@@ -688,9 +848,11 @@ def main():
                 flag = (' <span class="badge flag" title="Looks like a placeholder value (e.g. \'change-this\', '
                         'a generic example, or a dictionary-word phrase) — still verify it isn\'t a real '
                         'credential.">⚑ placeholder?</span>') if f.get("placeholder") else ""
+                rmv = (f' <span class="badge info" title="From a removable file ({esc(f.get("removable_why",""))}) '
+                       '— deleting it before install clears this finding.">🗑 removable</span>') if f.get("removable") else ""
                 out.append(
                     f'<div class="finding"><span class="badge {sev_badge(f["sev"])}">{esc(f["sev"])}</span> '
-                    f'<span class="cat">{esc(f["cat"])}</span>{flag} — {esc(f["why"])}'
+                    f'<span class="cat">{esc(f["cat"])}</span>{flag}{rmv} — {esc(f["why"])}'
                     f'<div class="loc"><span class="ev">{esc(f["loc"])}</span>{ev}</div>'
                     f'<div class="judge">Reviewer judgement: ☐ confirmed ☐ false positive ☐ documented-not-performed</div></div>')
             return "".join(out)
@@ -870,9 +1032,41 @@ def main():
             ("Scripts files (in scripts/)", metrics["scripts_files"]), ("Total script files", metrics["total_scripts"]),
             ("Misplaced scripts", metrics["misplaced"]), ("Dangerous calls", metrics["dangerous"]),
             ("Network/tool calls", metrics["network"]), ("Soft credential hits", metrics["soft_cred"]),
-            ("Hard credential hits", metrics["hard_cred"]), ("Writes files (declared)", "Yes" if writes_files else "No")])
+            ("Hard credential hits", metrics["hard_cred"]), ("Test-only hits (not scored)", metrics["test_only_total"]),
+            ("Writes files (declared)", "Yes" if writes_files else "No")])
         bd_html = ("".join(f'<li>{esc(lbl)}: {n} hit(s) → {pen}{esc(note)}</li>' for lbl, n, pen, note in score_breakdown)
                    or "<li>No penalties.</li>")
+        test_only_html = ("".join(f'<li>{esc(BUCKET_LABELS[k])}: {n} hit(s)</li>'
+                                   for k, n in metrics["test_only"].items() if n)
+                          or "<li>None.</li>")
+        if removable_total:
+            trim_rows = "".join(
+                f'<tr><td><code>{esc(rel)}</code></td><td>{esc(b["why"])}</td>'
+                f'<td>{b[SEV_CRIT]}</td><td>{b[SEV_WARN]}</td><td>{b[SEV_INFO]}</td></tr>'
+                for rel, b in trim_sorted)
+            delete_list = " ".join(f'<code>{esc(rel)}</code>' for rel, _ in trim_sorted)
+            tier_line = (f'<p class="note">If trimmed, the heuristic tier would drop from '
+                         f'<strong>{esc(tier)}</strong> to <strong>{esc(proj_tier)}</strong> — the scanner gate (§0) '
+                         f'still reflects the full folder, so re-run it on the trimmed copy.</p>' if tier_changes else "")
+            trim_html = (
+                '<h3>Trim-to-install — findings from removable files</h3>'
+                f'<p><span class="badge warn">{removable_total} finding(s) removable</span> '
+                f'{removable_stats[SEV_CRIT]} critical / {removable_stats[SEV_WARN]} warning / '
+                f'{removable_stats[SEV_INFO]} info come from files the installed skill does <strong>not</strong> need. '
+                f'Deleting them before install would leave <strong>{proj_crit} critical / {proj_warn} warning / '
+                f'{proj_info} info</strong>.</p>'
+                + tier_line +
+                '<table><thead><tr><th>File</th><th>Why removable</th><th>Crit</th><th>Warn</th><th>Info</th></tr></thead>'
+                f'<tbody>{trim_rows}</tbody></table>'
+                f'<p class="note"><strong>Delete before install to clear those findings:</strong> {delete_list}</p>'
+                '<p class="note">A file is "removable" only if the installed skill never loads it at runtime: tests, '
+                'human docs (README/CHANGELOG/CONTRIBUTING), backups (*.bak/*.orig), examples/fixtures, CI config, and '
+                'lint/build config. SKILL.md, scripts/, references/, assets/ and LICENSE are always kept. '
+                'Hard-credential hits are never treated as removable.</p>')
+        else:
+            trim_html = ('<h3>Trim-to-install — findings from removable files</h3>'
+                         '<p class="empty">No heuristic findings come from removable files — every flag is in a file '
+                         'the skill needs at runtime.</p>')
         metrics_body = (
             f'<p><span class="badge {rec_badge}">{score}/100 → {esc(recommendation)}</span>{forced_html}</p>'
             f'<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>{mrows}</tbody></table>'
@@ -880,7 +1074,13 @@ def main():
             '<p class="note">Penalties: misplaced −5 (cap 4), dangerous −8 (cap 8 → forces Decline), network −2 '
             '(cap 12), soft-cred −5 (cap 4), hard-cred −40 (any hit forces Decline). Counted in code files only, '
             'so behaviour merely documented in markdown does not inflate the score. Complements — never replaces — '
-            'the gate (§0) and tier (§6).</p>')
+            'the gate (§0) and tier (§6).</p>'
+            f'<p class="note"><strong>Found only in test files (not scored):</strong></p><ul>{test_only_html}</ul>'
+            '<p class="note">Dangerous/network/soft-credential patterns found only in test-path code '
+            '(tests/, __tests__/, *.test.js/*.spec.ts, test_*.py/*_test.py/conftest.py) are listed here instead of '
+            'counted above — deleting the tests would not reduce what the skill itself can do. Hard-credential hits '
+            'are never split out this way. Still worth a quick look at what the test code actually executes.</p>'
+            + trim_html)
 
         gate_legend = legend_dl([
             ("__grp__", "Gate verdict"),
@@ -902,6 +1102,9 @@ def main():
             ("⚑ placeholder?", "The hardcoded-secret value looks like a placeholder (e.g. \"change-this\", "
                                 "\"your-api-key-here\", a sample/dummy value, or a hyphenated word-phrase). "
                                 "Still a finding — confirm it isn't a real credential before dismissing."),
+            ("🗑 removable", "The finding comes from a file the installed skill does not need at runtime "
+                             "(test, doc, backup, example, CI, or dev-config). Deleting that file before "
+                             "install clears the finding without reducing the skill — see Metrics & risk score."),
         ])
         owasp_legend = legend_dl([
             ("__grp__", "Signal column"),
@@ -938,6 +1141,10 @@ def main():
             ("Hard credential hits", "Literal secrets (keys/tokens/JWT/PEM) (-40 each, any -> Decline). "
                                       "Hits that look like placeholder values are noted but still counted "
                                       "and still force Decline — verify before treating as a false positive."),
+            ("Test-only hits", "Dangerous/network/soft-credential patterns found ONLY in test-path code "
+                                "(tests/, __tests__/, *.test.js/*.spec.ts, test_*.py/*_test.py/conftest.py). "
+                                "Not counted above — deleting the tests would not reduce the skill's own "
+                                "capabilities. Hard-credential hits are never split out this way."),
             ("Writes files", "Declared via metadata.dispatcher-writes-files (informational)."),
         ])
         tier_legend = legend_dl([
@@ -1005,6 +1212,38 @@ def main():
         forced_note = f" — **forced by {', '.join(forced)}**" if forced else ""
         bd = "".join(f"- {lbl}: {n} hit(s) → {pen}{note}\n" for lbl, n, pen, note in score_breakdown) or "- _No penalties._\n"
         yn = lambda b: "Yes" if b else "No"
+        test_only = metrics["test_only"]
+        test_only_lines = "".join(f"- {BUCKET_LABELS[k]}: {n} hit(s)\n" for k, n in test_only.items() if n) \
+            or "- _None._\n"
+        if removable_total:
+            trim_table = "\n".join(
+                f"| `{rel}` | {b['why']} | {b[SEV_CRIT]} | {b[SEV_WARN]} | {b[SEV_INFO]} |"
+                for rel, b in trim_sorted)
+            delete_list = "  ".join(f"`{rel}`" for rel, _ in trim_sorted)
+            tier_line = (f"\n> If trimmed, the heuristic tier would drop from **{tier}** to **{proj_tier}** "
+                         "(the scanner gate in §0 still reflects the full folder — re-run it on the trimmed copy)."
+                         if tier_changes else "")
+            trim_block = f"""
+### Trim-to-install — findings from removable files
+
+**{removable_total}** finding(s) ({removable_stats[SEV_CRIT]} critical / {removable_stats[SEV_WARN]} warning / {removable_stats[SEV_INFO]} info) come from files the installed skill does **not** need. Deleting them before install would leave **{proj_crit} critical / {proj_warn} warning / {proj_info} info**.{tier_line}
+
+| File | Why removable | Crit | Warn | Info |
+|---|---|--:|--:|--:|
+{trim_table}
+
+**Delete before install to clear those findings:** {delete_list}
+
+> A file is "removable" only if the installed skill never loads it at runtime: tests, human docs
+> (README/CHANGELOG/CONTRIBUTING), backups (`*.bak`/`*.orig`), examples/fixtures, CI config, and lint/build
+> config. `SKILL.md`, `scripts/`, `references/`, `assets/` and `LICENSE` are always kept. Hard-credential hits
+> are never treated as removable. The external scanner gate (§0) ran on the full folder — re-run it on the
+> trimmed copy to confirm the gate verdict too.
+"""
+        else:
+            trim_block = ("\n### Trim-to-install — findings from removable files\n\n"
+                          "_No heuristic findings come from removable files — every flag is in a file the "
+                          "skill needs at runtime._\n")
         return f"""## Metrics & risk score
 
 **Heuristic risk score: {score} / 100 → {recommendation}**{forced_note}
@@ -1023,6 +1262,7 @@ def main():
 | Network/tool calls | {metrics['network']} |
 | Soft credential hits | {metrics['soft_cred']} |
 | Hard credential hits | {metrics['hard_cred']} |
+| Test-only hits (not scored) | {metrics['test_only_total']} |
 | Writes files (declared) | {yn(writes_files)} |
 
 Score breakdown (base 100):
@@ -1031,7 +1271,15 @@ Score breakdown (base 100):
 > soft-cred −5 (cap 4), hard-cred −40 (any hit forces Decline). Counted in code files only, so
 > behaviour merely *documented* in markdown does not inflate the score. This score is a mechanical
 > aid that complements — never replaces — the gate (§0) and tier (§6).
-"""
+
+Found only in test files (not scored):
+{test_only_lines}
+> Dangerous/network/soft-credential patterns found *only* in test-path code (`tests/`,
+> `__tests__/`, `*.test.js`/`*.spec.ts`, `test_*.py`/`*_test.py`/`conftest.py`) are listed here
+> instead of counted above — deleting the tests would not reduce what the skill itself can do.
+> Hard-credential hits are never split out this way: a real secret in a test fixture is still a
+> real secret. Still worth a quick look at what the test code actually executes.
+{trim_block}"""
 
     def fmt(fl):
         if not fl:
@@ -1044,6 +1292,9 @@ Score breakdown (base 100):
             if f.get("placeholder"):
                 out += "\n  - ⚑ _Looks like a placeholder value (e.g. \"change-this\", a generic example, or " \
                        "a dictionary-word phrase) — still verify it isn't a real credential._"
+            if f.get("removable"):
+                out += f"\n  - 🗑 _From a removable file ({f['removable_why']}) — deleting it before install " \
+                       "clears this finding without reducing the skill._"
             out += "\n  - Reviewer judgement: ☐ confirmed ☐ false positive ☐ documented-not-performed — notes: ____\n"
         return out
 
