@@ -1,4 +1,4 @@
-<!-- GENERATED EXAMPLE: produced by running the skill against examples/example-skill/ (--scanners sample-scanner-results.json --format both). Paths/timestamps/hashes differ on your machine. Shows the Profile & summary (incl. the "why this verdict/tier" decision explanation), the scanner gate (§0, with a link to sample-scanner-results.json), §3 Findings grouped per scanner then per severity, the Reviewer inventory, the OWASP map, Metrics (test-only + Trim-to-install), and a dismissible 'webhook' false positive. Companion page: sample-report.scanners.html. -->
+<!-- GENERATED EXAMPLE: produced by running the skill against examples/example-skill/ (--scanners sample-scanner-results.json --format both). Paths/timestamps/hashes differ on your machine. Shows the Profile & summary (incl. the "why this verdict/tier" decision explanation), the scanner gate (§0, with a link to sample-scanner-results.json), §3 Findings grouped per scanner then per severity, the Reviewer inventory, the OWASP map, Metrics (test-only + Trim-to-install), and §6 Suggested tier with a "What do the tiers mean?" explainer. Companion page: sample-report.scanners.html. -->
 
 # Skill Vetting Report — `example-weather-fetcher`
 
@@ -216,6 +216,21 @@ _No heuristic findings come from removable files — every flag is in a file the
 Adjust for source (verified vendor may lower by one tier) and blast radius
 (credentials / sensitive data / org-wide rollout forces Tier 3).
 Gate state: **PASS** — a BLOCK forces reject/escalate; INCOMPLETE blocks Tier 1+ approval until a scanner runs.
+
+<details><summary><strong>What do the tiers mean?</strong></summary>
+
+The tier sets **how deeply a human must review the skill before installing it, and who signs off** — higher tier = more scrutiny.
+
+| Tier | Meaning | What the reviewer does |
+|---|---|---|
+| **Tier 0 — register only** | Text/instructions only; no executable code, nothing that reaches outside the chat. | Record the exact version; no code review needed. |
+| **Tier 1 — light review** | Low risk. | One reviewer skims the code, pins the exact version/commit, registers it. |
+| **Tier 2 — standard review** | Executable content with warnings worth a look. | A second reviewer reads the flagged code and runs the skill once in a sandbox (isolated/throwaway environment). |
+| **Tier 3 — deep review** | Critical findings, an unreviewable binary, or a blocking scanner gate (§0). | The security team reads every flagged location, sandbox-tests the behaviour, and signs off before install. |
+| **REJECT** | Do not install. Confirmed concealment/exfiltration, a real hardcoded credential, or a BLOCK gate. | Quarantine and report instead of approving. |
+
+**How the tier is chosen:** the scanner gate (§0) comes first — a BLOCK forces REJECT / Tier 3 regardless of the heuristics, and an INCOMPLETE gate blocks Tier 1+ until a scanner runs. Otherwise the tier rises with the worst finding (a critical → Tier 3; executable code + warnings → Tier 2; …), then is adjusted for source and blast radius as noted above.
+</details>
 
 ## 7. Reviewer judgement (mandatory)
 - External scanner gate reviewed (§0): ☐ yes — verdict: PASS

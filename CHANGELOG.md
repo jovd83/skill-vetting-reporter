@@ -4,15 +4,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
+## [2.8.1] - 2026-06-17
 
 ### Changed
-
-### Fixed
-
-### Removed
+- **§6 Suggested review tier now explains what the tiers actually mean.** The HTML
+  `(?)` legend was rewritten from terse one-liners into plain language — each tier
+  (0 = register only, 1 = light review, 2 = standard review, 3 = deep review,
+  REJECT) now states what it means, who signs off, and what the reviewer does,
+  plus how the tier is chosen (gate first, then heuristics, then context). The
+  Markdown §6 gains a matching collapsible **"What do the tiers mean?"** glossary
+  table (Markdown has no clickable button). No logic change — the tier values are
+  unchanged; only their explanation is clearer.
 
 ## [2.8.0] - 2026-06-17
 
@@ -271,6 +273,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.8.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.1
 [2.8.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.0
 [2.7.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.7.0
 [2.6.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.6.0

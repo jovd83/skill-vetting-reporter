@@ -4,7 +4,7 @@ description: Security & trust vetting for an AgentSkill (folder, SKILL.md, zip, 
 license: MIT
 metadata:
   author: jovd83
-  version: 2.8.0
+  version: 2.8.1
 ---
 
 # Skill Vetting Reporter

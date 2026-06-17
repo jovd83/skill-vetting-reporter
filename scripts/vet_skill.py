@@ -1480,11 +1480,21 @@ def main():
             ("Writes files", "Declared via metadata.dispatcher-writes-files (informational)."),
         ])
         tier_legend = legend_dl([
-            ("Tier 0", "Instructions-only, negligible blast radius."),
-            ("Tier 1", "Low risk — pin version + register."),
-            ("Tier 2", "Executable content with warnings — sandbox test + second reviewer."),
-            ("Tier 3", "Critical findings, binaries, or a BLOCK gate — security team."),
-            ("REJECT", "Confirmed concealment/exfiltration or BLOCK — reject + quarantine."),
+            ("__grp__", "What the suggested tier means — it sets how deeply a human must review the skill before it is installed, and who signs off. Higher tier = more scrutiny."),
+            ("Tier 0 — register only", "Text/instructions only, no executable code and nothing that can reach outside the chat. "
+                                       "Negligible blast radius: just record the exact version and move on. No code review needed."),
+            ("Tier 1 — light review", "Low risk. One reviewer skims the code, pins the exact version/commit, and registers it. "
+                                      "No sandbox run required."),
+            ("Tier 2 — standard review", "Executable content with warnings worth a look. A second reviewer reads the flagged code "
+                                         "and runs the skill once in a sandbox (a throwaway/isolated environment) before approving."),
+            ("Tier 3 — deep review", "Critical findings, an unreviewable binary, or a blocking scanner gate (§0). The security team "
+                                     "must read every flagged location, sandbox-test the behaviour, and sign off before it can be installed."),
+            ("REJECT", "Do not install. A confirmed concealment/exfiltration pattern, a real hardcoded credential, or a BLOCK gate — "
+                       "quarantine the skill and report it instead of approving."),
+            ("__grp__", "How the tier is chosen"),
+            ("Gate first", "A BLOCK in §0 forces REJECT / Tier 3 no matter what the heuristics say; an INCOMPLETE gate blocks Tier 1+ until a scanner runs."),
+            ("Then heuristics", "Otherwise the tier rises with the worst finding: a critical → Tier 3, executable code + warnings → Tier 2, and so on."),
+            ("Adjust for context", "A verified-vendor source may lower the tier by one; credentials, sensitive data, or an org-wide rollout push it up to Tier 3."),
         ])
         profile_legend = legend_dl([
             ("__grp__", "Author trust"),
@@ -1936,6 +1946,21 @@ Found only in test files (not scored):
 Adjust for source (verified vendor may lower by one tier) and blast radius
 (credentials / sensitive data / org-wide rollout forces Tier 3).
 Gate state: **{gate_verdict}** — a BLOCK forces reject/escalate; INCOMPLETE blocks Tier 1+ approval until a scanner runs.
+
+<details><summary><strong>What do the tiers mean?</strong></summary>
+
+The tier sets **how deeply a human must review the skill before installing it, and who signs off** — higher tier = more scrutiny.
+
+| Tier | Meaning | What the reviewer does |
+|---|---|---|
+| **Tier 0 — register only** | Text/instructions only; no executable code, nothing that reaches outside the chat. | Record the exact version; no code review needed. |
+| **Tier 1 — light review** | Low risk. | One reviewer skims the code, pins the exact version/commit, registers it. |
+| **Tier 2 — standard review** | Executable content with warnings worth a look. | A second reviewer reads the flagged code and runs the skill once in a sandbox (isolated/throwaway environment). |
+| **Tier 3 — deep review** | Critical findings, an unreviewable binary, or a blocking scanner gate (§0). | The security team reads every flagged location, sandbox-tests the behaviour, and signs off before install. |
+| **REJECT** | Do not install. Confirmed concealment/exfiltration, a real hardcoded credential, or a BLOCK gate. | Quarantine and report instead of approving. |
+
+**How the tier is chosen:** the scanner gate (§0) comes first — a BLOCK forces REJECT / Tier 3 regardless of the heuristics, and an INCOMPLETE gate blocks Tier 1+ until a scanner runs. Otherwise the tier rises with the worst finding (a critical → Tier 3; executable code + warnings → Tier 2; …), then is adjusted for source and blast radius as noted above.
+</details>
 
 ## 7. Reviewer judgement (mandatory)
 - External scanner gate reviewed (§0): ☐ yes — verdict: {gate_verdict}
