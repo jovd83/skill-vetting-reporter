@@ -618,6 +618,13 @@ def main():
                          "summary, category, author_about, author_credibility, author_trust, author_links, other_notes")
     args = ap.parse_args()
     gate = load_scanner_gate(args.scanners)
+    scanner_json_basename = ""  # link target (relative) for the scanner_results.json
+    if args.scanners:
+        try:
+            scanner_json_basename = os.path.relpath(
+                Path(args.scanners).resolve(), Path(args.output).resolve().parent).replace("\\", "/")
+        except Exception:
+            scanner_json_basename = os.path.basename(args.scanners)
     profile = {}
     if args.profile:
         try:
@@ -938,6 +945,9 @@ def main():
                 retry_notes.append(f"- _{r['name']}_ — {r['retry_note']}")
         if retry_notes:
             out.append("\n**Retries:**\n" + "\n".join(retry_notes))
+        if scanner_json_basename:
+            out.append(f"\n📄 Full scanner output: [`{os.path.basename(args.scanners)}`]({scanner_json_basename}) "
+                       "(raw `scanner_results.json`; per-finding detail is also expanded per scanner in §3).")
         return "\n".join(out) + "\n"
 
     def build_owasp_section():
@@ -958,10 +968,12 @@ def main():
                   "references/owasp-top10-agent-skills.md._\n")
         return "\n".join(rows) + legend
 
-    def build_html_report():
+    def build_html_report(main_html_name="", scanners_html_name=""):
         """Render the same data as an HTML document using assets/report-template.html
         (skill-dispatcher 'warm paper' visual language). Reuses every computed value
-        so the HTML and markdown reports never drift."""
+        so the HTML and markdown reports never drift. Returns (report_html,
+        scanner_results_html) — the second is a styled rendering of scanner_results.json
+        (empty string when the gate was not run)."""
         tmpl_path = Path(__file__).resolve().parent.parent / "assets" / "report-template.html"
         template = tmpl_path.read_text(encoding="utf-8")
         esc = html.escape
@@ -1060,6 +1072,13 @@ def main():
                            for r in gate["results"] if r.get("retry_note")]
             if retry_notes:
                 rows.append('<p class="note"><strong>Retries:</strong></p><ul>' + "".join(retry_notes) + "</ul>")
+            links = []
+            if scanners_html_name:
+                links.append(f'<a href="{esc(scanners_html_name)}">rendered scanner results</a>')
+            if scanner_json_basename:
+                links.append(f'<a href="{esc(scanner_json_basename)}">scanner_results.json</a>')
+            if links:
+                rows.append('<p class="note">📄 Full scanner output: ' + " · ".join(links) + "</p>")
             gate_body = "".join(rows)
         else:
             gate_body = ('<p class="note"><strong>Gate not run.</strong> Run '
@@ -1083,10 +1102,43 @@ def main():
                     f'<table><thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256 (16)</th><th>Hidden</th></tr></thead>'
                     f'<tbody>{inv_rows}</tbody></table></details>')
 
-        # --- §3 findings ---
-        find_body = (f'<h3>Critical ({len(crit)})</h3>{finding_rows(crit)}'
-                     f'<h3>Warnings ({len(warn)})</h3>{finding_rows(warn)}'
-                     f'<h3>Info ({len(info)})</h3>{finding_rows(info)}')
+        # --- §3 findings (grouped per scanner, then per severity) ---
+        find_body = ('<h3>skill-vetting-reporter — static heuristics</h3>'
+                     f'<h4>Critical ({len(crit)})</h4>{finding_rows(crit)}'
+                     f'<h4>Warnings ({len(warn)})</h4>{finding_rows(warn)}'
+                     f'<h4>Info ({len(info)})</h4>{finding_rows(info)}')
+        sev_badge = {"critical": "block", "high": "block", "medium": "warn", "low": "info", "info": "info"}
+        for r in (gate.get("results") if gate else []) or []:
+            if r.get("status") not in ("ran", "ran (retried)"):
+                continue
+            meta = _scanner_meta(r)
+            mbadge = (' <span class="badge block">BLOCK</span>' if r.get("block")
+                      else ' <span class="badge pass">no block</span>')
+            metatxt = f' <span class="note">{esc(" · ".join(meta))}</span>' if meta else ""
+            find_body += f'<h3>{esc(r["name"])}{mbadge}{metatxt}</h3>'
+            fnd = r.get("findings") or []
+            sc = r.get("severity_counts", {}) or {}
+            if not fnd:
+                cnt = ", ".join(f"{k}:{sc[k]}" for k in ("critical", "high", "medium", "low") if sc.get(k))
+                find_body += ('<p class="note">Per-finding detail not captured for this scanner'
+                              + (f' (severity counts — {esc(cnt)})' if cnt else ' (no findings reported)')
+                              + '. See the raw output in <code>scanner_results.json</code>.</p>')
+                continue
+            by = {}
+            for f in fnd:
+                by.setdefault(f.get("severity", "info"), []).append(f)
+            for key, label in EXT_SEV_ORDER:
+                grp = by.get(key) or []
+                if not grp:
+                    continue
+                items = "".join(
+                    f'<li><span class="badge {sev_badge.get(key, "info")}">{label}</span> {esc(f.get("title", "(finding)"))}'
+                    + (f' — <code>{esc(f["location"])}</code>' if f.get("location") else "") + '</li>'
+                    for f in grp)
+                find_body += f'<h4>{label} ({len(grp)})</h4><ul>{items}</ul>'
+            total = r.get("findings_total", len(fnd))
+            if total > len(fnd):
+                find_body += f'<p class="note">…and {total - len(fnd)} more (capped).</p>'
 
         # --- Reviewer inventory ---
         INV_TOKEN_CAP = 25
@@ -1212,6 +1264,57 @@ def main():
         links_txt = ", ".join(esc(l) for l in author_links) if author_links else "—"
         notes_html = ("<ul>" + "".join(f"<li>{esc(n)}</li>" for n in other_notes) + "</ul>") if other_notes else '<p class="note">None noted.</p>'
         trust_badge = {"trusted": "pass", "assessed": "warn", "flagged": "block"}.get(str(author_trust).lower(), "info")
+        def build_decision_html():
+            if not gate:
+                return ""
+            f = _decision_facts()
+            h = [f'<h3>Scanner gate (§0) — why {esc(gate_verdict)}?</h3>']
+            intro = f"{len(f['ran'])} scanner(s) ran"
+            if f["ctx"]:
+                intro += " (" + "; ".join(esc(c) for c in f["ctx"]) + ")"
+            h.append(f'<p>{intro}:</p><ul>')
+            for nm, desc, isblk in f["ran"]:
+                blk = ' <span class="badge block">blocking</span>' if isblk else ''
+                h.append(f'<li><strong>{esc(nm)}</strong>: {esc(desc)}.{blk}</li>')
+            h.append('</ul>')
+            if gate_verdict == "BLOCK":
+                who = esc(", ".join(f["blocking"]) or "a scanner")
+                h.append('<p class="note">The gate rule is simple: <strong>any high or critical finding from any '
+                         f'scanner = BLOCK</strong>, regardless of the others. <strong>{who}</strong> alone is enough '
+                         'to block. The individual findings are listed per scanner in §3.</p>')
+            elif gate_verdict == "PASS":
+                h.append('<p class="note">No scanner returned a blocking result, so the gate passes — but a clean '
+                         'scan is <strong>not</strong> proof of safety; work §3–§5.</p>')
+            else:
+                h.append(f'<p class="note">The gate is <strong>{esc(gate_verdict)}</strong> — Tier 1+ approval is not '
+                         'allowed until at least one scanner runs, or a reviewer records an explicit exception.</p>')
+            h.append(f'<h3>Suggested tier (§6) — why {esc(tier)}?</h3>')
+            h.append('<p>The tier is set by a two-factor rule: the gate verdict first, then the heuristic score.</p><ul>')
+            if gate_verdict == "BLOCK":
+                h.append(f'<li><strong>Gate overrides everything</strong>: a BLOCK forces <strong>REJECT / Tier 3</strong> '
+                         f'regardless of the heuristics ({esc(tier_why)}).</li>')
+            elif gate_verdict in ("INCOMPLETE", "NOT RUN"):
+                h.append(f'<li><strong>Gate {esc(gate_verdict)}</strong>: blocks Tier 1+ approval until a scanner runs.</li>')
+            else:
+                h.append('<li><strong>Gate PASS</strong>: no blocking result, so the tier follows the heuristics, '
+                         'source, and blast radius.</li>')
+            if score_breakdown:
+                inner = "; ".join(f"{esc(lbl)} {n} hit(s) → {esc(str(pen))}" for lbl, n, pen, _n in score_breakdown)
+                forced_txt = f" (forced by {esc(', '.join(forced))})" if forced else ""
+                h.append(f'<li><strong>Heuristic score {score}/100 → {esc(recommendation)}</strong>{forced_txt}: {inner}.</li>')
+            else:
+                h.append(f'<li><strong>Heuristic score {score}/100 → {esc(recommendation)}</strong>: no penalties — clean.</li>')
+            if "dangerous" in forced:
+                h.append('<li>The <strong>dangerous-call cap</strong> was reached, which forces a Decline independently '
+                         'of the numeric score.</li>')
+            if not writes_files and f["n_write"]:
+                toks = ", ".join(f"<code>{esc(t)}</code>" for t in f["write_tokens"][:6])
+                h.append('<li><strong>Description-alignment note</strong>: the frontmatter does not declare '
+                         f'<code>dispatcher-writes-files: true</code>, but the scan found {f["n_write"]} file-write '
+                         f'site(s) ({toks}) — worth confirming in §7.</li>')
+            h.append('</ul>')
+            return "".join(h)
+
         profile_body = (
             f'<p>{esc(report_summary)}</p>'
             '<dl class="kv">'
@@ -1222,7 +1325,8 @@ def main():
             f'<dt>Author credibility</dt><dd>{esc(cred_txt)}</dd>'
             f'<dt>About the author</dt><dd>{esc(about_txt)}</dd>'
             f'<dt>Links</dt><dd>{links_txt}</dd>'
-            '</dl><p class="note"><strong>Other useful things to know</strong></p>' + notes_html)
+            '</dl><p class="note"><strong>Other useful things to know</strong></p>' + notes_html
+            + build_decision_html())
 
         # --- Metrics & risk score ---
         rec_badge = ("pass" if recommendation == "No further review"
@@ -1409,10 +1513,125 @@ def main():
         gen = (f'<span>Generated {date.today().isoformat()}</span>'
                f'<span>Static heuristics + external scanner gate</span>'
                f'<span>Gate: {esc(gate_verdict)}</span>')
-        return (template.replace("{{TITLE}}", esc(name))
-                .replace("{{GENERATED_LINE}}", gen)
-                .replace("{{STAT_CARDS}}", stat_cards)
-                .replace("{{SECTIONS}}", sections))
+        report_html = (template.replace("{{TITLE}}", esc(name))
+                       .replace("{{GENERATED_LINE}}", gen)
+                       .replace("{{STAT_CARDS}}", stat_cards)
+                       .replace("{{SECTIONS}}", sections))
+
+        # --- companion page: scanner_results.json rendered in the same style ---
+        def build_scanner_results_html():
+            if not gate:
+                return ""
+            ev_sev = {"critical": "block", "high": "block", "medium": "warn", "low": "info", "info": "info"}
+            secs = []
+            back = (f'<p class="note"><a href="{esc(main_html_name)}">← back to the vetting report</a>'
+                    f'{(" · <a href=" + chr(34) + esc(scanner_json_basename) + chr(34) + ">raw scanner_results.json</a>") if scanner_json_basename else ""}</p>')
+            ov = (f'<p>Gate verdict: <strong>{esc(gate["gate"])}</strong> · '
+                  f'{gate.get("scanners_ran", 0)}/{gate.get("scanners_total", 0)} scanner(s) ran · '
+                  f'generated {esc(str(gate.get("generated_utc", "")))}.</p>' + back)
+            secs.append(section("", "Scanner results — overview", ov))
+            for r in gate["results"]:
+                kv = ['<dl class="kv">', f'<dt>Status</dt><dd>{esc(str(r.get("status", "")))}</dd>']
+                if r.get("command"):
+                    kv.append(f'<dt>Command</dt><dd><code>{esc(str(r["command"]))}</code></dd>')
+                sc = r.get("severity_counts", {}) or {}
+                cnt = ", ".join(f"{k}:{sc[k]}" for k in ("critical", "high", "medium", "low") if sc.get(k)) or "none"
+                kv.append(f'<dt>Severity counts</dt><dd>{esc(cnt)}</dd>')
+                if r.get("risk_score") is not None:
+                    kv.append(f'<dt>Risk score</dt><dd>{esc(str(r["risk_score"]))}</dd>')
+                if r.get("recommendation"):
+                    kv.append(f'<dt>Recommendation</dt><dd>{esc(str(r["recommendation"]))}</dd>')
+                block_badge = '<span class="badge block">yes</span>' if r.get("block") else "no"
+                kv.append(f'<dt>Block?</dt><dd>{block_badge}</dd>')
+                if r.get("install_hint") and r.get("status") == "missing":
+                    kv.append(f'<dt>Install</dt><dd><code>{esc(str(r["install_hint"]))}</code></dd>')
+                if r.get("skip_reason"):
+                    kv.append(f'<dt>Skip reason</dt><dd>{esc(str(r["skip_reason"]))}</dd>')
+                kv.append("</dl>")
+                body = "".join(kv)
+                fnd = r.get("findings") or []
+                if fnd:
+                    by = {}
+                    for f in fnd:
+                        by.setdefault(f.get("severity", "info"), []).append(f)
+                    for key, label in EXT_SEV_ORDER:
+                        grp = by.get(key) or []
+                        if not grp:
+                            continue
+                        items = "".join(
+                            f'<li><span class="badge {ev_sev.get(key, "info")}">{label}</span> {esc(f.get("title", "(finding)"))}'
+                            + (f' — <code>{esc(f["location"])}</code>' if f.get("location") else "") + "</li>" for f in grp)
+                        body += f'<h4>{label} ({len(grp)})</h4><ul>{items}</ul>'
+                    total = r.get("findings_total", len(fnd))
+                    if total > len(fnd):
+                        body += f'<p class="note">…and {total - len(fnd)} more (capped).</p>'
+                if r.get("raw_tail"):
+                    body += ('<details><summary>Raw output (tail)</summary>'
+                             f'<pre style="white-space:pre-wrap;overflow:auto;max-height:420px" class="ev">{esc(str(r["raw_tail"]))}</pre></details>')
+                secs.append(section("", r["name"], body))
+            gcls = {"BLOCK": "is-block", "PASS": "is-pass", "INCOMPLETE": "is-warn"}.get(gate["gate"], "")
+            scards = "".join([
+                stat("Gate", gate["gate"], f'{gate.get("scanners_ran",0)}/{gate.get("scanners_total",0)} ran', gcls),
+                stat("Blocking", sum(1 for r in gate["results"] if r.get("block")), "scanner(s)",
+                     "is-block" if any(r.get("block") for r in gate["results"]) else ""),
+            ])
+            sgen = (f'<span>Generated {date.today().isoformat()}</span>'
+                    f'<span>Rendered from scanner_results.json</span><span>Gate: {esc(gate["gate"])}</span>')
+            return (template.replace("{{TITLE}}", esc(name + " — scanner results"))
+                    .replace("{{GENERATED_LINE}}", sgen)
+                    .replace("{{STAT_CARDS}}", scards)
+                    .replace("{{SECTIONS}}", "".join(secs)))
+
+        return report_html, build_scanner_results_html()
+
+    EXT_SEV_ORDER = [("critical", "Critical"), ("high", "High"), ("medium", "Medium"),
+                     ("low", "Low"), ("info", "Info")]
+
+    def _scanner_meta(r):
+        meta = []
+        if r.get("risk_score") is not None:
+            meta.append(f"score {r['risk_score']}")
+        if r.get("recommendation"):
+            meta.append(str(r["recommendation"]))
+        if r.get("block"):
+            meta.append("BLOCK")
+        return meta
+
+    def build_scanner_findings_md():
+        """Per external scanner (that ran), its findings grouped by severity."""
+        if not gate or not gate.get("results"):
+            return ""
+        blocks = []
+        for r in gate["results"]:
+            if r.get("status") not in ("ran", "ran (retried)"):
+                continue
+            meta = _scanner_meta(r)
+            head = f"### {r['name']}" + (f" — {' · '.join(meta)}" if meta else "")
+            fnd = r.get("findings") or []
+            sc = r.get("severity_counts", {}) or {}
+            if not fnd:
+                cnt = ", ".join(f"{k}:{sc[k]}" for k in ("critical", "high", "medium", "low") if sc.get(k))
+                note = (f"_Per-finding detail not captured for this scanner"
+                        + (f" (severity counts — {cnt})" if cnt else " (no findings reported)")
+                        + ". See §0 and the raw output in `scanner_results.json`._")
+                blocks.append(head + "\n" + note)
+                continue
+            by = {}
+            for f in fnd:
+                by.setdefault(f.get("severity", "info"), []).append(f)
+            sub = []
+            for key, label in EXT_SEV_ORDER:
+                grp = by.get(key) or []
+                if not grp:
+                    continue
+                lines = [f"- {f.get('title', '(finding)')}"
+                         + (f" — `{f['location']}`" if f.get("location") else "") for f in grp]
+                sub.append(f"#### {label} ({len(grp)})\n" + "\n".join(lines))
+            total = r.get("findings_total", len(fnd))
+            if total > len(fnd):
+                sub.append(f"_…and {total - len(fnd)} more (capped)._")
+            blocks.append(head + "\n" + "\n".join(sub))
+        return ("\n\n" + "\n\n".join(blocks) + "\n") if blocks else ""
 
     INV_TOKEN_CAP = 25  # max distinct tokens shown per inventory list
 
@@ -1474,6 +1693,79 @@ def main():
                 "installs, downloads and persistence targets are read from every file._\n\n"
                 + "\n\n".join(blocks) + "\n")
 
+    def _decision_facts():
+        """Structured inputs for the 'why this verdict/tier' explanation."""
+        ran, ctx, blocking = [], [], []
+        for r in (gate.get("results") if gate else []) or []:
+            st = r.get("status")
+            if st in ("ran", "ran (retried)"):
+                sc = r.get("severity_counts", {}) or {}
+                cnt = ", ".join(f"{k}:{sc[k]}" for k in ("critical", "high", "medium", "low") if sc.get(k))
+                sco, rec = r.get("risk_score"), r.get("recommendation")
+                if not cnt and sco is None and not rec:
+                    desc = "clean, no findings"
+                else:
+                    bits = ([cnt] if cnt else []) + ([f"score={sco}"] if sco is not None else []) + ([str(rec)] if rec else [])
+                    desc = ", ".join(bits)
+                ran.append((r["name"], desc, bool(r.get("block"))))
+                if r.get("block"):
+                    blocking.append(r["name"])
+            elif st == "skipped":
+                ctx.append(f"{r['name']} skipped ({r.get('skip_reason', 'no token/reason')})")
+            elif st == "missing":
+                ctx.append(f"{r['name']} not installed")
+            elif st == "error":
+                ctx.append(f"{r['name']} errored")
+        return {"ran": ran, "ctx": ctx, "blocking": blocking,
+                "n_write": sum(s["n"] for s in caps.get("fswrite", {}).values()),
+                "write_tokens": sorted(caps.get("fswrite", {}))}
+
+    def build_decision_md():
+        if not gate:
+            return ""
+        f = _decision_facts()
+        L = [f"### Scanner gate (§0) — why {gate_verdict}?"]
+        intro = f"{len(f['ran'])} scanner(s) ran"
+        if f["ctx"]:
+            intro += " (" + "; ".join(f["ctx"]) + ")"
+        L.append(intro + ":")
+        for nm, desc, isblk in f["ran"]:
+            L.append(f"- **{nm}**: {desc}." + ("  ← blocking" if isblk else ""))
+        if gate_verdict == "BLOCK":
+            who = ", ".join(f["blocking"]) or "a scanner"
+            L.append(f"\nThe gate rule is simple: **any high or critical finding from any scanner = BLOCK**, "
+                     f"regardless of what the other scanners say. **{who}** alone is enough to block. The "
+                     "individual findings are listed per scanner in §3.")
+        elif gate_verdict == "PASS":
+            L.append("\nNo scanner returned a blocking result (no high/critical, score below the threshold), so the "
+                     "gate passes — but a clean scan is **not** proof of safety; work §3–§5.")
+        else:
+            L.append(f"\nThe gate is **{gate_verdict}** — Tier 1+ approval is not allowed until at least one scanner "
+                     "runs, or a reviewer records an explicit exception.")
+        L.append(f"\n### Suggested tier (§6) — why {tier}?")
+        L.append("The tier is set by a two-factor rule: the gate verdict first, then the heuristic score.")
+        if gate_verdict == "BLOCK":
+            L.append(f"- **Gate overrides everything**: a BLOCK forces **REJECT / Tier 3** regardless of the "
+                     f"heuristics ({tier_why}).")
+        elif gate_verdict in ("INCOMPLETE", "NOT RUN"):
+            L.append(f"- **Gate {gate_verdict}**: blocks Tier 1+ approval until a scanner runs.")
+        else:
+            L.append("- **Gate PASS**: no blocking result, so the tier follows the heuristics, source, and blast radius.")
+        if score_breakdown:
+            inner = "; ".join(f"{lbl} {n} hit(s) → {pen}" for lbl, n, pen, _note in score_breakdown)
+            L.append(f"- **Heuristic score {score}/100 → {recommendation}**"
+                     + (f" (forced by {', '.join(forced)})" if forced else "") + f": {inner}.")
+        else:
+            L.append(f"- **Heuristic score {score}/100 → {recommendation}**: no penalties — the heuristic is clean.")
+        if "dangerous" in forced:
+            L.append("- The **dangerous-call cap** was reached, which forces a Decline independently of the numeric score.")
+        if not writes_files and f["n_write"]:
+            toks = ", ".join("`" + t + "`" for t in f["write_tokens"][:6])
+            L.append(f"- **Description-alignment note**: the frontmatter does not declare "
+                     f"`dispatcher-writes-files: true`, but the scan found {f['n_write']} file-write site(s) "
+                     f"({toks}) — worth confirming in §7.")
+        return "\n".join(L) + "\n"
+
     def build_profile_md():
         links = ", ".join(author_links) if author_links else "—"
         about = author_about or "_(unknown — run Phase 1 author lookup, or add the author to references/trusted_authors.json)_"
@@ -1495,7 +1787,7 @@ def main():
 
 **Other useful things to know**
 {notes}
-"""
+{build_decision_md()}"""
 
     def build_metrics_md():
         forced_note = f" — **forced by {', '.join(forced)}**" if forced else ""
@@ -1614,13 +1906,14 @@ Found only in test files (not scored):
 """ + "".join(f"| `{i['rel']}` | {i['kind']} | {i['size']} | `{i['hash']}` | {'yes' if i['hidden'] else ''} |\n" for i in inventory) + f"""
 ## 3. Findings
 
-### Critical ({len(crit)})
+### skill-vetting-reporter — static heuristics
+#### Critical ({len(crit)})
 {fmt(crit)}
-### Warnings ({len(warn)})
+#### Warnings ({len(warn)})
 {fmt(warn)}
-### Info ({len(info)})
+#### Info ({len(info)})
 {fmt(info)}
-
+{build_scanner_findings_md()}
 {build_inventory_md()}
 ## 4. OWASP Top 10 for Agentic Applications — coverage map
 {build_owasp_section()}
@@ -1671,8 +1964,15 @@ Re-review due: ____ (or on any version change)
         written["markdown"] = str(md_path)
     if args.format in ("html", "both"):
         html_path = out if out.suffix.lower() == ".html" else stem.with_suffix(".html")
-        Path(html_path).write_text(build_html_report(), encoding="utf-8")
+        main_html_name = Path(html_path).name
+        scanners_html_name = Path(html_path).stem + ".scanners.html" if gate else ""
+        main_html, scanner_html = build_html_report(main_html_name, scanners_html_name)
+        Path(html_path).write_text(main_html, encoding="utf-8")
         written["html"] = str(html_path)
+        if scanner_html:
+            scanners_path = Path(html_path).parent / scanners_html_name
+            Path(scanners_path).write_text(scanner_html, encoding="utf-8")
+            written["scanners_html"] = str(scanners_path)
     print(json.dumps({"files": len(inventory), "critical": len(crit), "warnings": len(warn),
                       "info": len(info), "suggested_tier": tier, "scanner_gate": gate_verdict,
                       "outputs": written}))

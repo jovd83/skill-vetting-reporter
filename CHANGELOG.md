@@ -4,15 +4,35 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.8.0] - 2026-06-17
 
 ### Added
+- **§3 Findings are now grouped per scanner, then per severity.** The reporter's
+  own findings appear under **"skill-vetting-reporter — static heuristics"**
+  (Critical / Warning / Info), followed by one subsection per external scanner
+  that ran (Cisco, SkillSpector, …) showing **that scanner's** findings grouped
+  Critical / High / Medium / Low / Info, with its score / recommendation / BLOCK
+  state in the heading. To support this, `run_scanners.py` now persists a
+  best-effort, normalized per-finding list (`findings` + `findings_total`, capped)
+  for each scanner — previously only aggregate `severity_counts` were kept. Scans
+  produced before this version (or scanners that report only counts) degrade
+  gracefully to a "per-finding detail not captured" note.
+- **Decision explanation in the Profile & summary section** (Markdown + HTML):
+  two data-driven blocks — **"Scanner gate (§0) — why \<verdict\>?"** (lists each
+  scanner's result, names the blocking scanner(s), and states the any-high/critical
+  = BLOCK rule) and **"Suggested tier (§6) — why \<tier\>?"** (the gate-overrides-
+  then-heuristic-score logic, the score breakdown, the dangerous-call cap, and a
+  description-alignment note when `dispatcher-writes-files` is not declared but
+  file-write sites are found).
+- **Link to the scanner results from §0.** The Markdown report links to the raw
+  `scanner_results.json`; the HTML report links to a **new companion page**
+  (`<report>.scanners.html`) that renders `scanner_results.json` in the same
+  "warm paper" style — per scanner: status, command, counts, score, recommendation,
+  findings grouped by severity, and a collapsible raw-output tail.
 
 ### Changed
-
-### Fixed
-
-### Removed
+- The committed example now ships `examples/sample-scanner-results.json` and
+  `examples/sample-report.scanners.html` so the §0 links resolve in the sample.
 
 ## [2.7.0] - 2026-06-16
 
@@ -241,6 +261,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.8.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.0
 [2.7.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.7.0
 [2.6.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.6.0
 [2.5.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.5.1

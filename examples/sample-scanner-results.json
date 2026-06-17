@@ -1,0 +1,94 @@
+{
+  "schema": "skill-vetting-reporter/scanner-gate/v1",
+  "generated_utc": "2026-06-17T07:07:28Z",
+  "target": "C:\\projects\\skills\\skill-vetting-reporter\\examples\\example-skill",
+  "gate": "PASS",
+  "scanners_ran": 2,
+  "scanners_total": 4,
+  "blocking": [],
+  "results": [
+    {
+      "id": "cisco-skill-scanner",
+      "name": "Cisco AI Defense skill-scanner",
+      "url": "https://github.com/cisco-ai-defense/skill-scanner",
+      "install_hint": "pip install cisco-ai-skill-scanner   # then: skill-scanner scan <path> --format json",
+      "notes": "Signature + optional LLM semantic + behavioural dataflow. 'No findings != no risk.'",
+      "command": "C:\\Users\\jochi\\.local\\bin\\skill-scanner.EXE scan C:\\projects\\skills\\skill-vetting-reporter\\examples\\example-skill --format json",
+      "status": "ran",
+      "severity_counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "risk_score": null,
+      "recommendation": "MEDIUM",
+      "block": false,
+      "exit_code": 0,
+      "findings": [
+        {
+          "severity": "medium",
+          "title": "Undeclared network usage",
+          "location": ""
+        },
+        {
+          "severity": "medium",
+          "title": "Outbound network request primitives that can transmit data externally",
+          "location": ""
+        }
+      ],
+      "findings_total": 2,
+      "raw_tail": ".request.urlopen(\",\n        \"aitech\": \"AITech-8.2\",\n        \"aitech_name\": \"Data Exfiltration / Exposure\",\n        \"scanner_category\": \"SECURITY VIOLATION\"\n      }\n    }\n  ],\n  \"scan_duration_seconds\": 0.42002081871032715,\n  \"duration_ms\": 420,\n  \"analyzers_used\": [\n    \"static_analyzer\",\n    \"bytecode\",\n    \"pipeline\"\n  ],\n  \"timestamp\": \"2026-06-17T07:07:26.148782+00:00\",\n  \"scan_metadata\": {\n    \"policy_name\": \"default\",\n    \"policy_version\": \"1.0\",\n    \"policy_preset_base\": \"balanced\",\n    \"policy_fingerprint_sha256\": \"90696022f7fc8c307edfd13e2d4713f9d14042a147f48a3c7c7fde921dc2a686\"\n  }\n}"
+    },
+    {
+      "id": "skillspector",
+      "name": "NVIDIA SkillSpector",
+      "url": "https://github.com/NVIDIA/SkillSpector",
+      "install_hint": "git clone https://github.com/NVIDIA/SkillSpector && cd SkillSpector && uv venv && make install",
+      "notes": "64 patterns / 16 categories incl. prompt injection, exfiltration, MCP tool poisoning. Risk score 0-100. (run with --no-llm; pass --enhanced for LLM analysis)",
+      "command": "C:\\Users\\jochi\\.local\\bin\\skillspector.EXE scan C:\\projects\\skills\\skill-vetting-reporter\\examples\\example-skill --no-llm --format json --output C:\\Users\\jochi\\AppData\\Local\\Temp\\svr_5aelbnhs.json",
+      "status": "ran",
+      "severity_counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "risk_score": 26.0,
+      "recommendation": "CAUTION",
+      "block": false,
+      "exit_code": 0,
+      "findings": [
+        {
+          "severity": "medium",
+          "title": "MCP Least Privilege",
+          "location": ""
+        },
+        {
+          "severity": "medium",
+          "title": "Data Exfiltration",
+          "location": ""
+        }
+      ],
+      "findings_total": 2,
+      "raw_tail": "usted and necessary. Remove or replace with documented APIs. Ensure no secrets, tokens, or PII are transmitted.\",\n      \"code_snippet\": \"\\n\\ndef main(city):\\n    url = \\\"https://api.example.com/forecast?city=\\\" + city\\n    with urllib.request.urlopen(url) as resp:  # outbound network call (reported as a warning)\\n        data = json.load(resp)\\n    print(f\\\"{city}: {data.get('temp')}C, {data.get('conditions')}\\\")\",\n      \"intent\": null\n    }\n  ],\n  \"metadata\": {\n    \"has_executable_scripts\": true,\n    \"skillspector_version\": \"2.1.2\",\n    \"llm_requested\": false,\n    \"llm_available\": false\n  }\n}"
+    },
+    {
+      "id": "snyk-agent-scan",
+      "name": "Snyk Agent Scan",
+      "url": "https://github.com/snyk/agent-scan",
+      "install_hint": "uvx snyk-agent-scan@latest <path> --json   # needs SNYK_TOKEN; pass --allow-uvx to fetch & run",
+      "notes": "Auto-discovers skills/MCP across agents. Requires SNYK_TOKEN.",
+      "status": "skipped",
+      "skip_reason": "SNYK_TOKEN not set - export it to enable Snyk"
+    },
+    {
+      "id": "sentry-skill-scanner",
+      "name": "sentry/skill-scanner (community)",
+      "url": "https://github.com/getsentry/skills",
+      "install_hint": "npx skills add https://github.com/getsentry/skills --skill skill-scanner",
+      "notes": "Install-time scanner; bundled scan_skill.py runs static analysis. Looked under: C:\\Users\\jochi\\.agents\\skills, C:\\Users\\jochi\\.claude\\skills",
+      "status": "missing"
+    }
+  ]
+}

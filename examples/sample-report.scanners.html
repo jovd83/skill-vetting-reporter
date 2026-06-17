@@ -1,0 +1,228 @@
+<!-- GENERATED EXAMPLE companion page: scanner_results.json rendered in the report's visual style. Linked from §0 of sample-report.html. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>example-weather-fetcher — scanner results — Skill Vetting Report</title>
+<style>
+  :root {
+    --bg: #efe4d1;
+    --paper: rgba(255, 251, 243, 0.82);
+    --paper-strong: #fffaf2;
+    --ink: #18130f;
+    --muted: #756858;
+    --line: rgba(98, 73, 42, 0.16);
+    --line-strong: rgba(98, 73, 42, 0.26);
+    --accent: #a34e25;
+    --accent-strong: #7f3817;
+    --accent-soft: rgba(163, 78, 37, 0.10);
+    --olive: #42563d;
+    --gold: #c3922f;
+    --shadow: 0 22px 60px rgba(73, 47, 18, 0.10);
+    --radius: 22px;
+    --radius-lg: 34px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(255, 245, 222, 0.95), transparent 26%),
+      radial-gradient(circle at 85% 14%, rgba(211, 164, 107, 0.18), transparent 20%),
+      radial-gradient(circle at 74% 62%, rgba(255, 255, 255, 0.54), transparent 22%),
+      linear-gradient(180deg, #f6eedf 0%, #ede2cf 48%, #e9dcc8 100%);
+    color: var(--ink);
+    font-family: "Aptos", "Trebuchet MS", "Segoe UI", sans-serif;
+    line-height: 1.55;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120, 89, 53, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120, 89, 53, 0.025) 1px, transparent 1px);
+    background-size: 120px 120px; opacity: 0.45; mix-blend-mode: multiply;
+  }
+  .container { position: relative; max-width: 1120px; margin: 0 auto; padding: 40px 28px 64px; }
+
+  /* Hero */
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    color: var(--accent-strong); font-size: 0.78rem; font-weight: 800;
+    letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; display: block; width: 40px; height: 1px; background: rgba(127, 56, 23, 0.4); }
+  h1 {
+    font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+    font-size: clamp(2.4rem, 5vw, 3.9rem); margin: 0; letter-spacing: -0.04em; line-height: 0.96;
+  }
+  .hero-subcopy { max-width: 78ch; margin-top: 14px; color: rgba(24, 19, 15, 0.74); font-size: 1rem; }
+  .timestamp {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 0.8rem;
+    margin-top: 18px; text-transform: uppercase; letter-spacing: 0.1em;
+  }
+
+  /* Stat cards */
+  .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 30px 0 8px; }
+  .stat-card {
+    position: relative; background: linear-gradient(180deg, rgba(255, 251, 243, 0.94), rgba(250, 241, 229, 0.80));
+    border: 1px solid rgba(120, 89, 53, 0.12); border-radius: var(--radius); padding: 22px 24px;
+    box-shadow: var(--shadow); overflow: hidden; min-height: 130px; display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .stat-card::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+    background: linear-gradient(90deg, var(--bar, rgba(163,78,37,0.65)), rgba(195, 146, 47, 0.12)); opacity: 0.8; }
+  .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .stat-value { font-size: clamp(1.9rem, 3vw, 2.8rem); font-weight: 800; line-height: 1; letter-spacing: -0.04em; }
+  .stat-sub { color: var(--muted); font-size: 0.8rem; }
+  .stat-card.is-block { --bar: var(--accent-strong); }
+  .stat-card.is-block .stat-value { color: var(--accent-strong); }
+  .stat-card.is-pass { --bar: var(--olive); }
+  .stat-card.is-pass .stat-value { color: var(--olive); }
+  .stat-card.is-warn { --bar: var(--gold); }
+
+  /* Section cards */
+  .section {
+    position: relative; background: linear-gradient(180deg, rgba(255, 251, 243, 0.96), rgba(250, 241, 229, 0.84));
+    border: 1px solid rgba(120, 89, 53, 0.12); border-radius: var(--radius); padding: 26px 28px;
+    box-shadow: var(--shadow); margin-top: 22px; overflow: hidden;
+  }
+  .section::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+    background: linear-gradient(90deg, rgba(163, 78, 37, 0.65), rgba(195, 146, 47, 0.12)); opacity: 0.72; z-index: 1; }
+  /* collapsible pane header */
+  .section > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px;
+    margin: -4px 0 16px; padding-top: 6px; }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section:not([open]) > summary { margin-bottom: 0; }
+  .sec-h2 { font-family: "Baskerville Old Face", "Palatino Linotype", Georgia, serif;
+    font-size: 1.5rem; letter-spacing: -0.02em; }
+  .sec-h2 .sec-num { color: var(--accent); }
+  .chev { margin-left: auto; width: 9px; height: 9px; border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 0.2s ease; flex: none; }
+  .section[open] > summary .chev { transform: rotate(-135deg); }
+  .help-btn { display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px;
+    border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); font-weight: 800;
+    font-size: 0.8rem; cursor: pointer; border: 1px solid rgba(163, 78, 37, 0.3); flex: none; user-select: none; }
+  .help-btn:hover { background: linear-gradient(135deg, var(--accent), #c56c3b); color: #fff; }
+  .info-box { display: none; margin: 0 0 16px; padding: 14px 18px; border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(251, 244, 235, 0.9));
+    border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 0.85rem; }
+  .info-box.active { display: block; }
+  .legend { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+  .legend dt { font-weight: 800; color: var(--accent-strong); white-space: nowrap; }
+  .legend dd { margin: 0; color: var(--ink); }
+  .legend .grp { grid-column: 1 / -1; margin-top: 8px; font-weight: 800; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.72rem; }
+  .note { color: var(--muted); font-size: 0.85rem; margin-top: 12px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); background: rgba(163, 78, 37, 0.05); }
+  tr:last-child td { border-bottom: none; }
+  td code, .ev { font-family: "Consolas", "SFMono-Regular", monospace; font-size: 0.82rem; background: rgba(120, 89, 53, 0.08);
+    padding: 1px 6px; border-radius: 6px; word-break: break-word; }
+
+  /* Key-value */
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 22px; font-size: 0.92rem; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;
+    letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; white-space: nowrap; }
+  .badge.crit, .badge.block { background: rgba(163, 78, 37, 0.14); color: var(--accent-strong); border-color: rgba(163, 78, 37, 0.3); }
+  .badge.warn { background: rgba(195, 146, 47, 0.18); color: #8a6516; border-color: rgba(195, 146, 47, 0.34); }
+  .badge.info, .badge.skipped, .badge.missing { background: rgba(117, 104, 88, 0.12); color: var(--muted); border-color: rgba(117, 104, 88, 0.24); }
+  .badge.pass, .badge.ran, .badge.clear { background: rgba(66, 86, 61, 0.14); color: var(--olive); border-color: rgba(66, 86, 61, 0.3); }
+  .badge.flag { background: transparent; color: var(--accent-strong); border-color: rgba(163, 78, 37, 0.3);
+    text-transform: none; letter-spacing: normal; font-weight: 700; cursor: help; }
+
+  /* Findings */
+  .finding { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .finding:last-child { border-bottom: none; }
+  .finding .cat { font-weight: 800; }
+  .finding .loc { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+  .finding .judge { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+  .empty { color: var(--olive); font-style: italic; }
+
+  /* Checklist */
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li { padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
+  .checklist li:last-child { border-bottom: none; }
+  .mark { font-weight: 800; }
+  .mark.flag { color: var(--accent-strong); }
+  .mark.ok { color: var(--olive); }
+  .mark.todo { color: var(--muted); }
+
+  details > summary { cursor: pointer; color: var(--accent); font-weight: 700; padding: 6px 0; }
+  .foot { color: var(--muted); font-size: 0.8rem; margin-top: 34px; text-align: center; }
+  a { color: var(--accent-strong); }
+  @media print { body { background: #fff; } .section, .stat-card { box-shadow: none; } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <span class="eyebrow">AgentSkill Vetting Report</span>
+      <h1>example-weather-fetcher — scanner results</h1>
+      <p class="hero-subcopy"><strong>"No findings" means no known patterns matched — it does NOT mean the skill is safe.</strong> A human reviewer must complete every judgement section before any approval. Static analysis only; the reviewed skill's code is never executed.</p>
+      <div class="timestamp"><span>Generated 2026-06-17</span><span>Rendered from scanner_results.json</span><span>Gate: PASS</span></div>
+    </header>
+    <section class="statgrid"><div class="stat-card is-pass"><span class="stat-label">Gate</span><span class="stat-value">PASS</span><span class="stat-sub">2/4 ran</span></div><div class="stat-card "><span class="stat-label">Blocking</span><span class="stat-value">0</span><span class="stat-sub">scanner(s)</span></div></section>
+    <details class="section" open><summary><span class="sec-h2">Scanner results — overview</span><span class="chev" aria-hidden="true"></span></summary><p>Gate verdict: <strong>PASS</strong> · 2/4 scanner(s) ran · generated 2026-06-17T07:07:28Z.</p><p class="note"><a href="sample-report.html">← back to the vetting report</a> · <a href="sample-scanner-results.json">raw scanner_results.json</a></p></details><details class="section" open><summary><span class="sec-h2">Cisco AI Defense skill-scanner</span><span class="chev" aria-hidden="true"></span></summary><dl class="kv"><dt>Status</dt><dd>ran</dd><dt>Command</dt><dd><code>C:\Users\jochi\.local\bin\skill-scanner.EXE scan C:\projects\skills\skill-vetting-reporter\examples\example-skill --format json</code></dd><dt>Severity counts</dt><dd>medium:2</dd><dt>Recommendation</dt><dd>MEDIUM</dd><dt>Block?</dt><dd>no</dd></dl><h4>Medium (2)</h4><ul><li><span class="badge warn">Medium</span> Undeclared network usage</li><li><span class="badge warn">Medium</span> Outbound network request primitives that can transmit data externally</li></ul><details><summary>Raw output (tail)</summary><pre style="white-space:pre-wrap;overflow:auto;max-height:420px" class="ev">.request.urlopen(&quot;,
+        &quot;aitech&quot;: &quot;AITech-8.2&quot;,
+        &quot;aitech_name&quot;: &quot;Data Exfiltration / Exposure&quot;,
+        &quot;scanner_category&quot;: &quot;SECURITY VIOLATION&quot;
+      }
+    }
+  ],
+  &quot;scan_duration_seconds&quot;: 0.42002081871032715,
+  &quot;duration_ms&quot;: 420,
+  &quot;analyzers_used&quot;: [
+    &quot;static_analyzer&quot;,
+    &quot;bytecode&quot;,
+    &quot;pipeline&quot;
+  ],
+  &quot;timestamp&quot;: &quot;2026-06-17T07:07:26.148782+00:00&quot;,
+  &quot;scan_metadata&quot;: {
+    &quot;policy_name&quot;: &quot;default&quot;,
+    &quot;policy_version&quot;: &quot;1.0&quot;,
+    &quot;policy_preset_base&quot;: &quot;balanced&quot;,
+    &quot;policy_fingerprint_sha256&quot;: &quot;90696022f7fc8c307edfd13e2d4713f9d14042a147f48a3c7c7fde921dc2a686&quot;
+  }
+}</pre></details></details><details class="section" open><summary><span class="sec-h2">NVIDIA SkillSpector</span><span class="chev" aria-hidden="true"></span></summary><dl class="kv"><dt>Status</dt><dd>ran</dd><dt>Command</dt><dd><code>C:\Users\jochi\.local\bin\skillspector.EXE scan C:\projects\skills\skill-vetting-reporter\examples\example-skill --no-llm --format json --output C:\Users\jochi\AppData\Local\Temp\svr_5aelbnhs.json</code></dd><dt>Severity counts</dt><dd>medium:2</dd><dt>Risk score</dt><dd>26.0</dd><dt>Recommendation</dt><dd>CAUTION</dd><dt>Block?</dt><dd>no</dd></dl><h4>Medium (2)</h4><ul><li><span class="badge warn">Medium</span> MCP Least Privilege</li><li><span class="badge warn">Medium</span> Data Exfiltration</li></ul><details><summary>Raw output (tail)</summary><pre style="white-space:pre-wrap;overflow:auto;max-height:420px" class="ev">usted and necessary. Remove or replace with documented APIs. Ensure no secrets, tokens, or PII are transmitted.&quot;,
+      &quot;code_snippet&quot;: &quot;\n\ndef main(city):\n    url = \&quot;https://api.example.com/forecast?city=\&quot; + city\n    with urllib.request.urlopen(url) as resp:  # outbound network call (reported as a warning)\n        data = json.load(resp)\n    print(f\&quot;{city}: {data.get(&#x27;temp&#x27;)}C, {data.get(&#x27;conditions&#x27;)}\&quot;)&quot;,
+      &quot;intent&quot;: null
+    }
+  ],
+  &quot;metadata&quot;: {
+    &quot;has_executable_scripts&quot;: true,
+    &quot;skillspector_version&quot;: &quot;2.1.2&quot;,
+    &quot;llm_requested&quot;: false,
+    &quot;llm_available&quot;: false
+  }
+}</pre></details></details><details class="section" open><summary><span class="sec-h2">Snyk Agent Scan</span><span class="chev" aria-hidden="true"></span></summary><dl class="kv"><dt>Status</dt><dd>skipped</dd><dt>Severity counts</dt><dd>none</dd><dt>Block?</dt><dd>no</dd><dt>Skip reason</dt><dd>SNYK_TOKEN not set - export it to enable Snyk</dd></dl></details><details class="section" open><summary><span class="sec-h2">sentry/skill-scanner (community)</span><span class="chev" aria-hidden="true"></span></summary><dl class="kv"><dt>Status</dt><dd>missing</dd><dt>Severity counts</dt><dd>none</dd><dt>Block?</dt><dd>no</dd><dt>Install</dt><dd><code>npx skills add https://github.com/getsentry/skills --skill skill-scanner</code></dd></dl></details>
+    <footer class="foot">Generated by skill-vetting-reporter · this report assists human review and never approves anything on its own.</footer>
+  </div>
+  <script>
+    // Legend "?" buttons live inside each pane's <summary>. Toggle the legend box
+    // without collapsing the pane (preventDefault cancels the <details> toggle).
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.help-btn');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var box = btn.closest('.section').querySelector(':scope > .info-box');
+      if (box) box.classList.toggle('active');
+    });
+    // Keyboard: Enter/Space on a focused help button toggles too.
+    document.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('help-btn')) {
+        e.preventDefault();
+        var box = e.target.closest('.section').querySelector(':scope > .info-box');
+        if (box) box.classList.toggle('active');
+      }
+    });
+  </script>
+</body>
+</html>

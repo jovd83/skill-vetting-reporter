@@ -211,6 +211,46 @@ def _sev_bucket(value):
     return None  # info / informational / safe / none / unknown -> not counted
 
 
+_FINDING_TITLE_KEYS = ["title", "name", "message", "msg", "rule", "rule_id", "ruleId",
+                       "check", "check_name", "category", "description", "desc",
+                       "detector", "type", "summary", "id"]
+_FINDING_LOC_KEYS = ["file", "path", "filename", "filepath", "location", "loc", "target"]
+_FINDING_CAP = 150  # max per-finding records persisted per scanner
+
+
+def _finding_str(it, keys):
+    for k in keys:
+        for kk in (k, k.lower(), k.upper()):
+            if kk in it and isinstance(it[kk], (str, int, float)) and not isinstance(it[kk], bool):
+                s = str(it[kk]).strip()
+                if s:
+                    return s
+    return ""
+
+
+def extract_findings(parsed):
+    """Best-effort list of per-finding records [{severity,title,location}] from a
+    scanner's parsed JSON, so the report can group findings per scanner. Tolerant
+    of heterogeneous schemas; returns [] when no findings array is present."""
+    if parsed is None:
+        return [], 0
+    items = _find_list(parsed, ["findings", "issues", "vulnerabilities",
+                                "detections", "alerts", "results"]) or []
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        sev = _sev_bucket(it.get("severity") or it.get("level") or it.get("risk")
+                          or it.get("max_severity")) or "info"
+        title = _finding_str(it, _FINDING_TITLE_KEYS) or "(finding)"
+        loc = _finding_str(it, _FINDING_LOC_KEYS)
+        line = _finding_str(it, ["line", "line_number", "lineno", "start_line"])
+        if loc and line:
+            loc = f"{loc}:{line}"
+        out.append({"severity": sev, "title": title[:160], "location": loc[:120]})
+    return out[:_FINDING_CAP], len(out)
+
+
 def normalize(tool_id, exit_code, stdout, stderr, parsed):
     """Best-effort extraction of (severity_counts, score, recommendation, block?)
     from heterogeneous scanner output. Tolerant by design: schemas differ and
@@ -262,12 +302,15 @@ def normalize(tool_id, exit_code, stdout, stderr, parsed):
         or (recommendation is not None and BLOCK_MARKERS.search(recommendation) is not None)
         or (parsed is None and BLOCK_MARKERS.search(raw) is not None)
     )
+    findings, findings_total = extract_findings(parsed)
     return {
         "severity_counts": counts,
         "risk_score": score,
         "recommendation": recommendation,
         "block": bool(block),
         "exit_code": exit_code,
+        "findings": findings,
+        "findings_total": findings_total,
     }
 
 
