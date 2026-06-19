@@ -4,15 +4,13 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-### Changed
+## [2.9.1] - 2026-06-19
 
 ### Fixed
-
-### Removed
+- **CI smoke test** asserted the old §4 heading (`OWASP Top 10 for Agentic
+  Applications`), so the `validate` workflow went red after the v2.9.0 rename.
+  Updated the assertion to `OWASP Agentic Skills Top 10`. No change to the skill
+  itself — v2.9.0's report output was correct; only the CI check was stale.
 
 ## [2.9.0] - 2026-06-19
 
@@ -298,6 +296,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.9.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.9.1
 [2.9.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.9.0
 [2.8.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.1
 [2.8.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.0

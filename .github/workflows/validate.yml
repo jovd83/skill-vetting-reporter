@@ -45,7 +45,7 @@ jobs:
           python scripts/run_scanners.py /tmp/fixture-skill -o /tmp/scan.json
           # exercise both Markdown and HTML output
           python scripts/vet_skill.py /tmp/fixture-skill -o /tmp/report.md --scanners /tmp/scan.json --format both
-          grep -q "OWASP Top 10 for Agentic Applications" /tmp/report.md
+          grep -q "OWASP Agentic Skills Top 10" /tmp/report.md
           grep -q "External scanner gate" /tmp/report.md
           grep -q "Profile & summary" /tmp/report.md
           grep -q "Metrics & risk score" /tmp/report.md
