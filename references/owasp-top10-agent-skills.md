@@ -1,35 +1,37 @@
-# OWASP Top 10 for Agent Skills
+# OWASP Agentic Skills Top 10 (AST01–AST10)
 
-A skill-focused reading of the **OWASP Top 10 for Agentic Applications, v1.0**
-(OWASP GenAI Security Project, published 2025-12-09), the benchmark taxonomy for
-autonomous-AI risk. An AgentSkill is a small, distributable unit of agent
-behaviour — instructions plus optional scripts and assets — so it is exactly the
-kind of "runtime component" that several of these risks warn about. This file
-maps each ASI item to *what it looks like inside a skill*, *what the automated
-gate catches*, and *what a human reviewer still has to decide*.
+A working reading of the **OWASP Agentic Skills Top 10** — the OWASP project
+written specifically for the security of *AI agent skills* (the SKILL.md /
+manifest unit of agent behaviour), covering the OpenClaw (SKILL.md YAML),
+Claude Code (skill.json), Cursor/Codex (manifest.json) and VS Code
+(package.json) ecosystems. This file maps each AST item to *what it looks like
+inside a skill*, *what the automated gate catches*, and *what a human reviewer
+still has to decide*.
 
 Use it two ways:
-- As the grounding for the **§4 OWASP coverage map** in every vetting report.
+- As the grounding for the **§4 AST coverage map** in every vetting report.
 - As a checklist when a finding is ambiguous and you need to reason about impact.
 
-> Source: OWASP Top 10 for Agentic Applications v1.0 (ASI01–ASI10) and the
-> companion *Agentic AI – Threats and Mitigations v1.1*. It builds on the
-> OWASP Top 10 for LLM Applications 2025 (LLM01–LLM10); the mapping to those IDs
-> is noted per item. Always treat the published OWASP documents as authoritative
-> over this summary.
+> Source: **OWASP Agentic Skills Top 10**, v1.0 (2026 edition) —
+> https://owasp.org/www-project-agentic-skills-top-10/ . At time of writing this
+> is an **active OWASP project proposal**, so IDs and wording may still change;
+> always treat the published OWASP pages as authoritative over this summary. The
+> project also ships an assessment checklist and a skill-scanner integration page.
+> (The broader **OWASP Top 10 for Agentic Applications**, ASI01–ASI10, remains a
+> useful companion for agentic *systems* — but AST is the skill-specific list.)
 
 ## Contents
 - [How detection maps to the skill](#how-detection-maps-to-the-skill)
-- [ASI01 — Agent Goal Hijack](#asi01--agent-goal-hijack)
-- [ASI02 — Tool Misuse & Exploitation](#asi02--tool-misuse--exploitation)
-- [ASI03 — Identity & Privilege Abuse](#asi03--identity--privilege-abuse)
-- [ASI04 — Agentic Supply Chain Vulnerabilities](#asi04--agentic-supply-chain-vulnerabilities)
-- [ASI05 — Unexpected Code Execution](#asi05--unexpected-code-execution)
-- [ASI06 — Memory & Context Poisoning](#asi06--memory--context-poisoning)
-- [ASI07 — Insecure Inter-Agent Communication](#asi07--insecure-inter-agent-communication)
-- [ASI08 — Cascading Failures](#asi08--cascading-failures)
-- [ASI09 — Human-Agent Trust Exploitation](#asi09--human-agent-trust-exploitation)
-- [ASI10 — Rogue Agents](#asi10--rogue-agents)
+- [AST01 — Malicious Skills](#ast01--malicious-skills)
+- [AST02 — Supply Chain Compromise](#ast02--supply-chain-compromise)
+- [AST03 — Over-Privileged Skills](#ast03--over-privileged-skills)
+- [AST04 — Insecure Metadata](#ast04--insecure-metadata)
+- [AST05 — Unsafe Deserialization](#ast05--unsafe-deserialization)
+- [AST06 — Weak Isolation](#ast06--weak-isolation)
+- [AST07 — Update Drift](#ast07--update-drift)
+- [AST08 — Poor Scanning](#ast08--poor-scanning)
+- [AST09 — No Governance](#ast09--no-governance)
+- [AST10 — Cross-Platform Reuse](#ast10--cross-platform-reuse)
 
 ## How detection maps to the skill
 
@@ -37,160 +39,149 @@ Three layers cover these risks, in order of confidence:
 
 1. **External scanner gate** (`run_scanners.py`) — Cisco skill-scanner, NVIDIA
    SkillSpector, Snyk Agent Scan, sentry/skill-scanner. Signature + semantic +
-   behavioural/dataflow analysis. Strongest coverage for ASI01, ASI04, ASI05.
+   behavioural/dataflow analysis. Strongest coverage for AST01, AST02, AST05.
 2. **Heuristic scanner** (`vet_skill.py`) — fast regex/structure pass that flags
    *candidate* patterns by category. Good at locating evidence; it does not
    judge intent.
 3. **Human reviewer** — the only control that actually understands purpose and
-   context. ASI06–ASI10 lean heavily on this layer; the tools can point, but the
-   reviewer decides.
+   context. The process/governance items (AST08–AST10) lean almost entirely on
+   this layer; the tools can point, but the reviewer decides.
 
 No layer "passes" a skill. A clean scan means *no known pattern matched* — never
 *safe*.
 
 ---
 
-## ASI01 — Agent Goal Hijack
-*(maps to LLM01 Prompt Injection)*
+## AST01 — Malicious Skills
 
-**In a skill:** the SKILL.md body, a referenced doc, or a comment contains text
-that redirects the agent away from the task the user asked for — "ignore previous
-instructions", hidden HTML comments, zero-width characters, or framing that
-quietly substitutes a different objective (the EchoLeak class of attack). The
-skill's instructions are *data*, but a careless agent will treat them as
-commands.
+**In a skill:** the skill is deliberately hostile — a credential stealer,
+reverse shell, backdoor, or social-engineering instructions embedded in SKILL.md
+prose. Skills run with the host agent's full permissions, so a malicious one
+reaches API keys, SSH/wallet files, browser data, and the shell. Snyk's
+ToxicSkills research found malicious skills combine *both* a code layer (scripts,
+subprocess) and a natural-language instruction layer.
 
 **Gate / heuristic signal:** `Injection/override`, `Concealment`,
-`Hidden content`, `Authority claim`. SkillSpector "Prompt Injection" (5 patterns)
-and Cisco LLM semantic analysis target this directly.
+`Hidden content`, `Authority claim`, `Exfiltration channel`, `Credential access`,
+`Runtime download+exec`. SkillSpector/Cisco semantic + behavioural analysis.
 
-**Reviewer must judge:** Read the whole SKILL.md as untrusted input. Does any
-instruction try to change the goal, suppress a step, or speak to the agent rather
-than describe a task? Subtle reframing will not trip a regex.
+**Reviewer must judge:** Read the whole SKILL.md as untrusted input. Is there
+hidden/injected instruction text, credential harvesting, or an exfiltration sink
+that betrays intent a regex can't confirm?
 
-## ASI02 — Tool Misuse & Exploitation
-*(maps to LLM06 Excessive Agency)*
+## AST02 — Supply Chain Compromise
 
-**In a skill:** legitimate tools are used in unsafe ways — shelling out,
-spawning subprocesses, broad file globbing, or invoking a granted capability for
-something outside the stated purpose (the Amazon Q class).
+**In a skill:** a legitimate publisher's account is hijacked, or a skill is
+modified after publication, injecting malicious behaviour without the user's
+awareness; or it pulls unpinned dependencies / remote payloads that a poisoned
+upstream can swap.
 
-**Gate / heuristic signal:** `Dynamic execution`, `Permissions`, `Privilege`;
-SkillSpector "Tool Misuse" and "MCP Tool Poisoning".
+**Gate / heuristic signal:** `Dependency`, `External domains`, `Binary content`,
+`Runtime download+exec`; SkillSpector "Supply Chain", Snyk auto-discovery.
+
+**Reviewer must judge:** Is every dependency pinned to an immutable hash, named,
+and from a verified source with provenance/transparency? Any binary blob or
+runtime fetch should push toward Tier 3 or reject.
+
+## AST03 — Over-Privileged Skills
+
+**In a skill:** requests or uses more capability than its function needs —
+read/write to identity files, unrestricted network, shell execution — beyond
+what the stated purpose requires.
+
+**Gate / heuristic signal:** `Permissions`, `Privilege`, `Credential access`,
+`Dynamic execution`, `Network call`; SkillSpector "Tool Misuse" / least-privilege.
 
 **Reviewer must judge:** Is every powerful action *necessary* for what the skill
 claims to do? Excess capability is the vulnerability even if nothing malicious
 fires today.
 
-## ASI03 — Identity & Privilege Abuse
-*(maps to LLM06 Excessive Agency / LLM02 Sensitive Information Disclosure)*
+## AST04 — Insecure Metadata
 
-**In a skill:** reads SSH/AWS/npm credentials, enumerates environment variables,
-embeds a token, or requests elevation (`sudo`, `runas`, `--privileged`) it has no
-reason to need. Leaked credentials let the agent operate far beyond its scope.
+**In a skill:** the description, author, version, or permission declarations make
+false claims — enabling typosquatting and impersonation — or simply don't match
+the actual behaviour.
 
-**Gate / heuristic signal:** `Credential access`, `Hardcoded secret`,
-`Privilege`; SkillSpector "Privilege Escalation", Snyk credential-handling checks.
+**Gate / heuristic signal:** `Metadata` (missing/invalid frontmatter, control
+chars), `Authority claim`; plus the manual description-vs-behaviour check.
 
-**Reviewer must judge:** Does the skill touch identity or secrets at all? If so,
-is there a stated, legitimate reason, and is the scope minimal?
+**Reviewer must judge:** Do the frontmatter name/description/author/version match
+reality, and is the author the genuine publisher? A description-vs-behaviour
+mismatch is a reject on its own.
 
-## ASI04 — Agentic Supply Chain Vulnerabilities
-*(maps to LLM03 Supply Chain)*
+## AST05 — Unsafe Deserialization
 
-**In a skill:** unpinned `pip`/`npm` installs, dependencies pulled from
-non-allowlisted domains, an unreviewable binary or archive, or instructions that
-load remote content at runtime (the GitHub-MCP exploit class). Each is an entry
-point for a poisoned component.
+**In a skill:** YAML/JSON config (or a `pickle`/`marshal` load) executes
+arbitrary code through dangerous parser tags or unvalidated input during skill
+loading.
 
-**Gate / heuristic signal:** `Dependency`, `External domains`, `Binary content`,
-`Runtime download+exec`; SkillSpector "Supply Chain" (6 patterns) and YARA
-signatures, Snyk auto-discovery across agents.
+**Gate / heuristic signal:** `Dynamic execution` (pickle/marshal/`yaml.load`),
+`Obfuscation`; SkillSpector AST/taint analysis.
 
-**Reviewer must judge:** Is every dependency pinned, named, and from a trusted
-source? Any binary blob or remote fetch should push toward Tier 3 or reject.
+**Reviewer must judge:** Does the skill parse config in a way that can execute
+code? Require safe parsers (`yaml.safe_load`), no `pickle`/`marshal` on untrusted
+data, dangerous tags disabled, and schema validation.
 
-## ASI05 — Unexpected Code Execution
-*(maps to LLM05 Improper Output Handling)*
+## AST06 — Weak Isolation
 
-**In a skill:** a natural-language path reaches an exec sink — `eval`/`exec`,
-`curl | sh`, obfuscated/base64 payloads, or **side files the toolchain runs
-automatically** (`*.test.ts`, `conftest.py`, git hooks, CI workflows,
-`setup.py`). The skill body can look harmless while a test file does the work
-(the AutoGPT RCE class).
+**In a skill:** code runs in *host mode* with direct access to the user's file
+system, network, and processes instead of a container/sandbox — and side files
+the toolchain auto-runs (`*.test.ts`, `conftest.py`, git hooks, CI, `setup.py`)
+get the same access.
 
-**Gate / heuristic signal:** `Runtime download+exec`, `Dynamic execution`,
-`Obfuscation`, `Toolchain auto-execution`; SkillSpector "Behavioral AST" (8) and
-"Taint Tracking" (5), Cisco behavioural dataflow.
+**Gate / heuristic signal:** `Dynamic execution`, `Runtime download+exec`,
+`Toolchain auto-execution`; Cisco behavioural dataflow.
 
-**Reviewer must judge:** Trace where untrusted input can flow. Open every
-auto-executed side file — these are the most common place for a smuggled payload.
+**Reviewer must judge:** Does it need host-mode access, or could it run sandboxed?
+Open every auto-executed side file — these are the most common place for a
+smuggled payload.
 
-## ASI06 — Memory & Context Poisoning
-*(maps to LLM04 Data and Model Poisoning)*
+## AST07 — Update Drift
 
-**In a skill:** writes to agent memory or config that outlives the skill —
-`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `settings.json`, `memory.json` — so
-behaviour persists (and may stay malicious) even after the skill is removed (the
-Gemini memory-attack class).
+**In a skill:** dependencies use version *ranges* instead of pinned hashes, so a
+malicious update can silently replace trusted code after the skill was approved.
 
-**Gate / heuristic signal:** `Agent-config tampering`, `Persistence`;
-SkillSpector "Memory Poisoning".
+**Gate / heuristic signal:** `Dependency` (unpinned `pip`/`npm` installs).
 
-**Reviewer must judge:** Should this skill write outside its own directory at
-all? Persistent config edits are rarely justified and are hard to undo.
+**Reviewer must judge:** Are all (including nested) dependencies pinned to
+immutable hashes, with no wildcard/range versioning? Re-vet and re-pin the exact
+commit on every version change.
 
-## ASI07 — Insecure Inter-Agent Communication
-*(maps to LLM05 / agentic A2A threats)*
+## AST08 — Poor Scanning
 
-**In a skill:** opens outbound channels (webhooks, sockets, posts) to other
-agents or services without verifying the peer, enabling spoofed or poisoned
-messages to misdirect a cluster.
+**In a skill:** the skill relies on the *consumer* using a weak, single,
+pattern-matching scanner — and uses obfuscation, hidden/zero-width content, or
+natural-language-only instructions that signature scanners miss.
 
-**Gate / heuristic signal:** `Network call`, `Exfiltration channel`; Snyk MCP
-discovery, SkillSpector "MCP Least Privilege".
+**Gate / heuristic signal:** `Obfuscation`, `Concealment`, `Hidden content`
+(anti-analysis content); plus how many scanners actually ran in §0.
 
-**Reviewer must judge:** Where does outbound traffic go, what does it carry, and
-could the destination be spoofed or the payload be exfiltration disguised as
-coordination?
+**Reviewer must judge:** Could this skill evade pattern matching? Did the gate
+(§0) run more than one scanner, and does it combine semantic + behavioural
+analysis — not signatures alone?
 
-## ASI08 — Cascading Failures
-*(maps to LLM06 Excessive Agency / LLM09 Misinformation)*
+## AST09 — No Governance
 
-**In a skill:** unconditional or "silent" actions, or framing that encourages the
-agent to chain steps automatically, so one bad output amplifies through a
-pipeline with no checkpoint.
+**In a skill / in the org:** there is no skill inventory, approval workflow,
+audit logging, or agent-identity isolation — skills get installed ad hoc with no
+record of who approved what version.
 
-**Gate / heuristic signal:** `Authority claim`, `Concealment` ("always/silently
-run …"). Mostly a design judgement, not a pattern.
+**Gate / heuristic signal:** mostly process, not content (`Metadata` is a weak
+proxy: a skill that can't even declare author/version is a governance smell).
 
-**Reviewer must judge:** Does the skill insert a human checkpoint before
-high-impact or irreversible actions, or does it push for unattended automation?
+**Reviewer must judge:** Is this skill going through an approval gate, recorded in
+an inventory with approver + exact version, with the signed-off report (§7–§8)
+kept as the audit log and agent identity isolated?
 
-## ASI09 — Human-Agent Trust Exploitation
-*(maps to LLM09 Misinformation / social engineering)*
+## AST10 — Cross-Platform Reuse
 
-**In a skill:** the description and the behaviour diverge, or confident,
-authoritative language nudges a reviewer/operator into approving something they
-would otherwise question. **Description-vs-behaviour mismatch is a top red flag
-even when no code pattern fires.**
+**In a skill:** a malicious or over-privileged skill is ported across platforms
+(e.g. ClawHub → skills.sh, or a manifest from another ecosystem) *without
+re-validation*, so one platform's miss is amplified everywhere.
 
-**Gate / heuristic signal:** `Concealment`, `Authority claim`; otherwise manual.
+**Gate / heuristic signal:** not statically detectable from content alone — a
+process/governance judgement.
 
-**Reviewer must judge:** Do the frontmatter description and the full instructions
-describe the *same* task? Is any "pre-approved / no confirmation needed" framing
-trying to bypass governance?
-
-## ASI10 — Rogue Agents
-*(composite: LLM06 + LLM04 + behavioural)*
-
-**In a skill:** the *combination* of hidden instructions, persistence, and an
-exfiltration channel adds up to self-directed, concealed behaviour — even if each
-piece alone looks minor (the Replit-meltdown class).
-
-**Gate / heuristic signal:** co-occurrence of `Concealment`, `Persistence`,
-`Exfiltration channel`, `Agent-config tampering`; SkillSpector "Rogue Agent".
-
-**Reviewer must judge:** Step back from individual findings. Is there a coherent
-story of hidden, persistent, self-directed action? If yes — reject and
-quarantine, do not "approve with conditions".
+**Reviewer must judge:** Is this skill reused from another platform/registry
+without re-validation here? Re-validate and re-sign on every import; never inherit
+another platform's approval; pin the exact reviewed commit per platform.

@@ -4,15 +4,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
+## [2.9.0] - 2026-06-19
 
 ### Changed
-
-### Fixed
-
-### Removed
+- **§4 now uses the OWASP Agentic Skills Top 10 (AST01–AST10)** — the OWASP
+  project written specifically for agent-skill security
+  (https://owasp.org/www-project-agentic-skills-top-10/) — instead of the broader
+  OWASP Top 10 for Agentic *Applications* (ASI01–ASI10). The coverage map now maps
+  the heuristic finding categories onto: AST01 Malicious Skills, AST02 Supply
+  Chain Compromise, AST03 Over-Privileged Skills, AST04 Insecure Metadata, AST05
+  Unsafe Deserialization, AST06 Weak Isolation, AST07 Update Drift, AST08 Poor
+  Scanning, AST09 No Governance, AST10 Cross-Platform Reuse. The process/governance
+  items (AST08–AST10) are flagged as reviewer-judgement-led. `references/owasp-top10-agent-skills.md`,
+  the §4 heading/legend (both formats), SKILL.md, and README were rewritten to match.
+  Note: AST is an active OWASP *project proposal*, so the taxonomy may still evolve.
 
 ## [2.8.1] - 2026-06-17
 
@@ -283,6 +288,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.9.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.9.0
 [2.8.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.1
 [2.8.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.0
 [2.7.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.7.0
