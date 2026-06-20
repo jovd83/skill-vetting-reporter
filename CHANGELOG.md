@@ -4,15 +4,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.10.0] - 2026-06-20
 
 ### Added
-
-### Changed
-
-### Fixed
-
-### Removed
+- **§5 red-flag checklist is now the OWASP Agentic Skills assessment checklist**,
+  grouped AST01–AST10 with the OWASP item numbers (e.g. 1.4, 3.3, 5.1) and a link
+  to the source. Each item is auto-prefilled where this tool has a signal — ⚠ (a
+  finding category or a scanner-reported AST fired), ✓ (a factual coverage check
+  passed, e.g. ≥1 scanner with behavioural analysis, metadata present), or ☐ (a
+  human must still check). Replaces the old flat 11-item red-flag list.
+- **Scanner findings are mapped to AST ids.** `run_scanners.py` now captures an
+  AST id per finding (`vulnerabilities[].id` per the OWASP skill-scanner schema,
+  else inferred from the finding title); the report tags each external finding in
+  §3 with its AST id (e.g. `[AST03]`), and §4 rows now light up **scanner-flagged**
+  when any scanner reported a finding mapped to that AST — so the coverage map
+  reflects the external scanners, not only the local heuristics. New legend entries
+  explain the `scanner-flagged` signal and the per-finding AST badge.
 
 ## [2.9.1] - 2026-06-19
 
@@ -306,6 +313,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   severity, red-flag checklist, suggested review tier (0–3), and reviewer
   sign-off sections. Static analysis only; never executes the reviewed skill.
 
+[2.10.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.10.0
 [2.9.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.9.1
 [2.9.0]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.9.0
 [2.8.1]: https://github.com/jovd83/skill-vetting-reporter/releases/tag/v2.8.1

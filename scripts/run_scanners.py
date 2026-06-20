@@ -215,6 +215,8 @@ _FINDING_TITLE_KEYS = ["title", "name", "message", "msg", "rule", "rule_id", "ru
                        "check", "check_name", "category", "description", "desc",
                        "detector", "type", "summary", "id"]
 _FINDING_LOC_KEYS = ["file", "path", "filename", "filepath", "location", "loc", "target"]
+_FINDING_AST_KEYS = ["ast", "ast_id", "id", "rule", "rule_id", "ruleId", "category", "owasp"]
+_AST_RE = re.compile(r"\bAST\d{2}\b", re.IGNORECASE)
 _FINDING_CAP = 150  # max per-finding records persisted per scanner
 
 
@@ -247,7 +249,11 @@ def extract_findings(parsed):
         line = _finding_str(it, ["line", "line_number", "lineno", "start_line"])
         if loc and line:
             loc = f"{loc}:{line}"
-        out.append({"severity": sev, "title": title[:160], "location": loc[:120]})
+        # OWASP Agentic Skills schema: a finding may carry its AST id explicitly
+        # (vulnerabilities[].id = "AST01"); capture it verbatim when present.
+        m = _AST_RE.search(_finding_str(it, _FINDING_AST_KEYS))
+        ast = m.group(0).upper() if m else ""
+        out.append({"severity": sev, "title": title[:160], "location": loc[:120], "ast": ast})
     return out[:_FINDING_CAP], len(out)
 
 

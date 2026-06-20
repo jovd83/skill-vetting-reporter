@@ -113,6 +113,32 @@ OWASP_AST = [
      "Re-validate and re-sign on every platform import; never inherit another platform's approval; pin the exact reviewed commit per platform."),
 ]
 
+# Map an external scanner finding's title onto an AST id when the scanner did not
+# emit one explicitly (the OWASP schema's vulnerabilities[].id). First match wins,
+# so the more specific phrases are listed before the generic ones.
+_AST_KEYWORDS = [
+    ("AST05", r"code injection|deserial|unsafe (?:yaml|load|pickle)|\bpickle\b|\bmarshal\b"),
+    ("AST02", r"supply[ -]chain|provenance|publisher|post-publication|tamper"),
+    ("AST06", r"isolation|sandbox|host[- ]mode|container|seccomp|apparmor"),
+    ("AST03", r"over[- ]privileg|excessive (?:agency|permission)|least privilege|privilege|permission|shell (?:access|command)|child_process|file ?system access|broad (?:network|access)"),
+    ("AST04", r"metadata|typosquat|impersonation|description.*mismatch|ascii smuggling|zero[- ]width"),
+    ("AST07", r"update drift|auto-?update|unpinned|version range|\bdrift\b"),
+    ("AST08", r"scanning|pattern[- ]match|signature|analyzab"),
+    ("AST09", r"governance|\baudit\b|inventory|approval|non-human identit"),
+    ("AST10", r"cross[- ]platform|registry|universal skill format|portab"),
+    ("AST01", r"malicious|backdoor|reverse shell|exfiltrat|credential steal|prompt injection|hidden instruction|memory poison|\bc2\b|data exfil"),
+]
+
+
+def infer_ast(text):
+    """Best-effort AST id for a scanner finding from its title text."""
+    t = (text or "").lower()
+    for ast, rx in _AST_KEYWORDS:
+        if re.search(rx, t):
+            return ast
+    return ""
+
+
 URL_RE = re.compile(r"https?://([a-zA-Z0-9.-]+)")
 ALLOWLIST_DOMAINS = {"github.com", "raw.githubusercontent.com", "agentskills.io",
                      "anthropic.com", "docs.claude.com", "platform.claude.com",
@@ -630,6 +656,14 @@ def main():
                 Path(args.scanners).resolve(), Path(args.output).resolve().parent).replace("\\", "/")
         except Exception:
             scanner_json_basename = os.path.basename(args.scanners)
+    # AST ids reported (or inferred) by the external scanners — used to light up
+    # the §4 coverage map from scanner findings, not only our own heuristics.
+    scanner_ast_fired = set()
+    for r in (gate.get("results") if gate else []) or []:
+        for f in (r.get("findings") or []):
+            a = f.get("ast") or infer_ast(f.get("title", ""))
+            if a:
+                scanner_ast_fired.add(a)
     profile = {}
     if args.profile:
         try:
@@ -960,10 +994,13 @@ def main():
         rows = ["| AST | Risk | Static signal | Reviewer must still judge | Advice — what good looks like |",
                 "|---|---|---|---|---|"]
         for asi_id, asi_name, cats, manual, advice in OWASP_AST:
-            hit = [c for c in cats if c in cats_fired]
-            signal = ("⚠ " + ", ".join(sorted(set(hit)))) if hit else "clear"
+            sigbits = sorted({c for c in cats if c in cats_fired})
+            if asi_id in scanner_ast_fired:
+                sigbits.append("scanner-flagged")
+            signal = ("⚠ " + ", ".join(sigbits)) if sigbits else "clear"
             rows.append(f"| **{asi_id}** | {asi_name} | {signal} | {manual} | {advice} |")
-        legend = ("\n_**⚠** = checked and a known risk pattern fired (see §3). **clear** = checked and no "
+        legend = ("\n_**⚠** = checked and a known risk pattern fired (see §3); **scanner-flagged** in a row means "
+                  "an external scanner (§0/§3) reported a finding mapped to that AST. **clear** = checked and no "
                   "known pattern matched — this is **not** proof of safety: the scan only catches known "
                   "patterns, so novel / obfuscated / intent-level risk can remain, and the process/governance "
                   "risks AST08–AST10 especially need human judgement. ('clear' does not mean 'could not check' "
@@ -1136,11 +1173,14 @@ def main():
                 grp = by.get(key) or []
                 if not grp:
                     continue
-                items = "".join(
-                    f'<li><span class="badge {sev_badge.get(key, "info")}">{label}</span> {esc(f.get("title", "(finding)"))}'
-                    + (f' — <code>{esc(f["location"])}</code>' if f.get("location") else "") + '</li>'
-                    for f in grp)
-                find_body += f'<h4>{label} ({len(grp)})</h4><ul>{items}</ul>'
+                lis = []
+                for f in grp:
+                    a = f.get("ast") or infer_ast(f.get("title", ""))
+                    atag = f' <span class="badge info">{esc(a)}</span>' if a else ""
+                    loc = f' — <code>{esc(f["location"])}</code>' if f.get("location") else ""
+                    lis.append(f'<li><span class="badge {sev_badge.get(key, "info")}">{label}</span>{atag} '
+                               f'{esc(f.get("title", "(finding)"))}{loc}</li>')
+                find_body += f'<h4>{label} ({len(grp)})</h4><ul>{"".join(lis)}</ul>'
             total = r.get("findings_total", len(fnd))
             if total > len(fnd):
                 find_body += f'<p class="note">…and {total - len(fnd)} more (capped).</p>'
@@ -1206,6 +1246,8 @@ def main():
                  '<th>Reviewer must still judge</th><th>Advice — what good looks like</th></tr></thead><tbody>']
         for asi_id, asi_name, cats, manual, advice in OWASP_AST:
             hit = sorted({c for c in cats if c in cats_fired})
+            if asi_id in scanner_ast_fired:
+                hit.append("scanner-flagged")
             sig = (f'<span class="badge warn">⚠ {esc(", ".join(hit))}</span>' if hit
                    else '<span class="badge clear">clear</span>')
             owasp.append(f'<tr><td><strong>{asi_id}</strong></td><td>{esc(asi_name)}</td><td>{sig}</td>'
@@ -1226,19 +1268,64 @@ def main():
             return f'<li><span class="mark todo">☐</span> {esc(label)}</li>'
         gate_chk = "block" if gate_verdict == "BLOCK" else ("flag" if gate_verdict == "INCOMPLETE"
                    else ("ok" if gate_verdict in ("PASS",) else "todo"))
-        checklist = "<ul class='checklist'>" + "".join([
-            chk("flag" if any(f["cat"] == "Obfuscation" for f in findings) else "todo", "Obfuscated/encoded payloads"),
-            chk("flag" if any(f["cat"] == "Runtime download+exec" for f in findings) else "todo", "Runtime download & execute"),
-            chk("flag" if any(f["cat"] in ("Credential access", "Hardcoded secret") for f in findings) else "todo", "Credential/secret access"),
-            chk("flag" if any(f["cat"] in ("Concealment", "Injection/override", "Hidden content") for f in findings) else "todo", "Concealment / instruction override / hidden content"),
-            chk("flag" if any(f["cat"] in ("Persistence", "Agent-config tampering") for f in findings) else "todo", "Persistence outside skill directory"),
-            chk("todo", "Description vs. actual behaviour mismatch (manual)"),
-            chk("flag" if toolchain_hits else "todo", "Toolchain auto-executed side files"),
-            chk("flag" if unknown_domains else "todo", "Unexplained hardcoded URLs/domains"),
-            chk("todo", "Publisher impersonation (manual)"),
-            chk("flag" if any(f["cat"] == "Authority claim" for f in findings) else "todo", "Pressure/authority framing"),
-            chk(gate_chk, "External scanner gate (§0) clean"),
-        ]) + "</ul>"
+        firedh = {f["cat"] for f in findings}
+        cfh = lambda *cats: any(c in firedh for c in cats)
+        afh = lambda aid, cond=False: "flag" if (aid in scanner_ast_fired or cond) else "todo"
+        weak_scan_h = gate is None or gate.get("scanners_ran", 0) < 2
+        md_present_h = bool(fm and fm.get("name") and fm.get("description"))
+        chk_groups = [
+            ("AST01 — Malicious Skills", [
+                (afh("AST01", cfh("Injection/override", "Concealment", "Hidden content", "Exfiltration channel", "Credential access", "Runtime download+exec")),
+                 "(1.4) Scripts and natural-language instructions reviewed for malicious patterns"),
+                (afh("AST01", cfh("Agent-config tampering")), "(1.6) Does not write to agent identity files (CLAUDE.md/AGENTS.md/MEMORY.md)"),
+                ("todo", "(1.1, 1.3) Obtained from a verified, cryptographically signed, trusted source"),
+            ]),
+            ("AST02 — Supply Chain Compromise", [
+                (afh("AST02", cfh("Dependency")), "(2.2, 2.3) Skill and all nested dependencies pinned to immutable hashes (sha256:)"),
+                (afh("AST02", cfh("Binary content", "Runtime download+exec")), "(2.5, 2.6) No unreviewable binary / runtime-fetched payload; recursive tree scanned"),
+                ("todo", "(2.1) Publisher identity verified against a code-signing key"),
+            ]),
+            ("AST03 — Over-Privileged Skills", [
+                (afh("AST03", cfh("Privilege", "Permissions", "Dynamic execution")), "(3.3) No unrestricted shell access"),
+                (afh("AST03", cfh("Network call", "Exfiltration channel")), "(3.7) Network declared as a domain allowlist, not 'all'"),
+                (afh("AST03", cfh("Credential access", "Hardcoded secret")), "(3.5, 3.8) Scoped per-skill credentials; no credential-store access beyond function"),
+            ]),
+            ("AST04 — Insecure Metadata", [
+                ("todo", "(4.1) Description accurately reflects actual functionality (manual)"),
+                (afh("AST04", cfh("Hidden content", "Obfuscation")), "(4.2) Metadata scanned for ASCII smuggling / zero-width Unicode / base64 payloads"),
+                ("flag" if not md_present_h else "ok", "(4.4) Metadata present & valid (name + description)"),
+            ]),
+            ("AST05 — Unsafe Deserialization", [
+                (afh("AST05", cfh("Dynamic execution")), "(5.1) YAML parsed with safe loaders (no yaml.load; no pickle/marshal on untrusted data)"),
+                ("todo", "(5.4) requirements.txt / package.json / pyproject.toml treated as untrusted code"),
+            ]),
+            ("AST06 — Weak Isolation", [
+                (afh("AST06", cfh("Dynamic execution", "Runtime download+exec", "Toolchain auto-execution")), "(6.1) Will run in a container/sandbox, not host-mode"),
+                ("flag" if toolchain_hits else "todo", "(6.1) Auto-executed side files (tests / hooks / CI) reviewed"),
+            ]),
+            ("AST07 — Update Drift", [
+                (afh("AST07", cfh("Dependency")), "(7.1) Pinned to an immutable content hash; no version ranges"),
+                ("todo", "(7.2, 7.4) Auto-update disabled or gated behind re-approval + re-scan"),
+            ]),
+            ("AST08 — Poor Scanning", [
+                ("flag" if weak_scan_h else "ok", "(8.7, 8.1) Scanned by ≥1 agent-skill-aware scanner with behavioural analysis (see §0)"),
+                (afh("AST08", cfh("Obfuscation", "Concealment", "Hidden content")), "(8.2) Both code and natural-language layers scanned"),
+            ]),
+            ("AST09 — No Governance", [
+                ("todo", "(9.1, 9.3) Recorded in a skill inventory with an approval record (use §7–§8)"),
+                ("todo", "(9.2) Assigned a risk-tier classification (see §6)"),
+            ]),
+            ("AST10 — Cross-Platform Reuse", [
+                ("todo", "(10.1) Independently re-validated for each target platform (manual)"),
+            ]),
+        ]
+        checklist = ('<p class="note">Curated from the '
+                     '<a href="https://owasp.org/www-project-agentic-skills-top-10/checklist.html">OWASP Agentic '
+                     'Skills Security Assessment Checklist</a> (item numbers in parentheses). ⚠ = a signal fired '
+                     '(see §3/§4); ☐ = a human must still check; ✓ = a factual coverage check passed.</p>')
+        for gtitle, items in chk_groups:
+            checklist += f"<h4>{esc(gtitle)}</h4><ul class='checklist'>" + "".join(chk(c, l) for c, l in items) + "</ul>"
+        checklist += "<ul class='checklist'>" + chk(gate_chk, "External scanner gate (§0) clean") + "</ul>"
 
         # --- §6 tier ---
         tier_body = (f'<p><span class="badge {"block" if "REJECT" in tier or "3" in tier else "warn"}">{esc(tier)}</span> — {esc(tier_why)}.</p>'
@@ -1451,6 +1538,9 @@ def main():
                       "need human judgement. (It does not mean 'could not check'; every row is always "
                       "evaluated. Skipped or missing external-scanner coverage is shown in the gate, section 0.)"),
             ("⚠", "Checked: a known risk pattern in this category fired — see the Findings pane (section 3)."),
+            ("scanner-flagged", "An external scanner (section 0 / 3) reported a finding mapped to this AST id "
+                                "(from the finding's own AST id, or inferred from its title)."),
+            ("ASTxx badge", "On a per-scanner finding in section 3, the AST risk that finding maps to."),
             ("__grp__", "Finding categories you may see"),
             ("External domains", "A non-allowlisted URL/domain is referenced."),
             ("Exfiltration channel", "A known callback/exfil sink (webhook, ngrok, paste-bin, ...)."),
@@ -1573,10 +1663,14 @@ def main():
                         grp = by.get(key) or []
                         if not grp:
                             continue
-                        items = "".join(
-                            f'<li><span class="badge {ev_sev.get(key, "info")}">{label}</span> {esc(f.get("title", "(finding)"))}'
-                            + (f' — <code>{esc(f["location"])}</code>' if f.get("location") else "") + "</li>" for f in grp)
-                        body += f'<h4>{label} ({len(grp)})</h4><ul>{items}</ul>'
+                        lis = []
+                        for f in grp:
+                            a = f.get("ast") or infer_ast(f.get("title", ""))
+                            atag = f' <span class="badge info">{esc(a)}</span>' if a else ""
+                            loc = f' — <code>{esc(f["location"])}</code>' if f.get("location") else ""
+                            lis.append(f'<li><span class="badge {ev_sev.get(key, "info")}">{label}</span>{atag} '
+                                       f'{esc(f.get("title", "(finding)"))}{loc}</li>')
+                        body += f'<h4>{label} ({len(grp)})</h4><ul>{"".join(lis)}</ul>'
                     total = r.get("findings_total", len(fnd))
                     if total > len(fnd):
                         body += f'<p class="note">…and {total - len(fnd)} more (capped).</p>'
@@ -1639,8 +1733,12 @@ def main():
                 grp = by.get(key) or []
                 if not grp:
                     continue
-                lines = [f"- {f.get('title', '(finding)')}"
-                         + (f" — `{f['location']}`" if f.get("location") else "") for f in grp]
+                lines = []
+                for f in grp:
+                    a = f.get("ast") or infer_ast(f.get("title", ""))
+                    tag = f"**[{a}]** " if a else ""
+                    loc = f" — `{f['location']}`" if f.get("location") else ""
+                    lines.append(f"- {tag}{f.get('title', '(finding)')}{loc}")
                 sub.append(f"#### {label} ({len(grp)})\n" + "\n".join(lines))
             total = r.get("findings_total", len(fnd))
             if total > len(fnd):
@@ -1896,6 +1994,11 @@ Found only in test files (not scored):
 
     name = (fm or {}).get("name", root.name)
     rf = lambda cond: "⚠ check findings" if cond else "☐"
+    fired = {f["cat"] for f in findings}
+    cf = lambda *cats: any(c in fired for c in cats)             # a finding category fired?
+    af = lambda aid, cond=False: "⚠ check" if (aid in scanner_ast_fired or cond) else "☐"
+    weak_scan = gate is None or gate.get("scanners_ran", 0) < 2
+    md_present = bool(fm and fm.get("name") and fm.get("description"))
     report = f"""# Skill Vetting Report — `{name}`
 
 > Draft generated by skill-vetting-reporter on {date.today().isoformat()}. Static heuristics + external scanner gate.
@@ -1933,18 +2036,56 @@ Found only in test files (not scored):
 ## 4. OWASP Agentic Skills Top 10 (AST01–AST10) — coverage map
 {build_owasp_section()}
 {build_metrics_md()}
-## 5. Red-flag checklist (auto-prefilled where detectable)
-- {rf(any(f['cat']=='Obfuscation' for f in findings))} Obfuscated/encoded payloads
-- {rf(any(f['cat']=='Runtime download+exec' for f in findings))} Runtime download & execute
-- {rf(any(f['cat'] in ('Credential access','Hardcoded secret') for f in findings))} Credential/secret access
-- {rf(any(f['cat'] in ('Concealment','Injection/override','Hidden content') for f in findings))} Concealment / instruction override / hidden content
-- {rf(any(f['cat'] in ('Persistence','Agent-config tampering') for f in findings))} Persistence outside skill directory
-- ☐ Description vs. actual behaviour mismatch _(manual check — read full SKILL.md)_
-- {rf(bool(toolchain_hits))} Toolchain auto-executed side files
-- {rf(bool(unknown_domains))} Unexplained hardcoded URLs/domains
-- ☐ Publisher impersonation _(manual check — verify exact account name)_
-- {rf(any(f['cat']=='Authority claim' for f in findings))} Pressure/authority framing
-- {('⚠ BLOCK' if gate_verdict=='BLOCK' else ('⚠ INCOMPLETE' if gate_verdict=='INCOMPLETE' else ('☐' if gate_verdict=='NOT RUN' else '✓ passed')))} External scanner gate (§0) clean
+## 5. Red-flag checklist — OWASP Agentic Skills (AST01–AST10)
+Curated from the [OWASP Agentic Skills Security Assessment Checklist](https://owasp.org/www-project-agentic-skills-top-10/checklist.html)
+(item numbers in parentheses). **⚠** = a signal fired in this report (see §3/§4);
+**☐** = a human must still check; **✓** = a factual coverage check passed. This is
+the high-signal subset — run the full OWASP checklist for a formal assessment.
+
+**AST01 — Malicious Skills**
+- {af('AST01', cf('Injection/override','Concealment','Hidden content','Exfiltration channel','Credential access','Runtime download+exec'))} (1.4) Scripts *and* natural-language instructions reviewed for malicious patterns
+- {af('AST01', cf('Agent-config tampering'))} (1.6) Does not write to agent identity files (`CLAUDE.md` / `AGENTS.md` / `MEMORY.md`)
+- ☐ (1.1, 1.3) Obtained from a verified, cryptographically signed, trusted source
+
+**AST02 — Supply Chain Compromise**
+- {af('AST02', cf('Dependency'))} (2.2, 2.3) Skill and all nested dependencies pinned to immutable hashes (`sha256:`)
+- {af('AST02', cf('Binary content','Runtime download+exec'))} (2.5, 2.6) No unreviewable binary / runtime-fetched payload; recursive tree scanned
+- ☐ (2.1) Publisher identity verified against a code-signing key
+
+**AST03 — Over-Privileged Skills**
+- {af('AST03', cf('Privilege','Permissions','Dynamic execution'))} (3.3) No unrestricted shell access
+- {af('AST03', cf('Network call','Exfiltration channel'))} (3.7) Network declared as a domain allowlist, not "all"
+- {af('AST03', cf('Credential access','Hardcoded secret'))} (3.5, 3.8) Scoped per-skill credentials; no credential-store access beyond function
+
+**AST04 — Insecure Metadata**
+- ☐ (4.1) Description accurately reflects actual functionality _(manual)_
+- {af('AST04', cf('Hidden content','Obfuscation'))} (4.2) Metadata scanned for ASCII smuggling / zero-width Unicode / base64 payloads
+- {'⚠ check' if not md_present else '✓ present'} (4.4) Metadata present & valid (name + description)
+
+**AST05 — Unsafe Deserialization**
+- {af('AST05', cf('Dynamic execution'))} (5.1) YAML parsed with safe loaders (no `yaml.load`; no pickle/marshal on untrusted data)
+- ☐ (5.4) `requirements.txt` / `package.json` / `pyproject.toml` treated as untrusted code
+
+**AST06 — Weak Isolation**
+- {af('AST06', cf('Dynamic execution','Runtime download+exec','Toolchain auto-execution'))} (6.1) Will run in a container/sandbox, not host-mode
+- {rf(bool(toolchain_hits))} (6.1) Auto-executed side files (tests / hooks / CI) reviewed
+
+**AST07 — Update Drift**
+- {af('AST07', cf('Dependency'))} (7.1) Pinned to an immutable content hash; no version ranges
+- ☐ (7.2, 7.4) Auto-update disabled or gated behind re-approval + re-scan
+
+**AST08 — Poor Scanning**
+- {'⚠ check' if weak_scan else '✓ passed'} (8.7, 8.1) Scanned by ≥1 agent-skill-aware scanner with behavioural analysis (see §0)
+- {af('AST08', cf('Obfuscation','Concealment','Hidden content'))} (8.2) Both code and natural-language layers scanned
+
+**AST09 — No Governance**
+- ☐ (9.1, 9.3) Recorded in a skill inventory with an approval record _(use §7–§8)_
+- ☐ (9.2) Assigned a risk-tier classification _(see §6)_
+
+**AST10 — Cross-Platform Reuse**
+- ☐ (10.1) Independently re-validated for each target platform _(manual)_
+
+**Gate:** {('⚠ BLOCK' if gate_verdict=='BLOCK' else ('⚠ INCOMPLETE' if gate_verdict=='INCOMPLETE' else ('☐ NOT RUN' if gate_verdict=='NOT RUN' else '✓ passed')))} — external scanner gate (§0) clean.
 
 ## 6. Suggested review tier
 **{tier}** — {tier_why}.

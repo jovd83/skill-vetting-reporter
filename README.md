@@ -1,6 +1,6 @@
 # skill-vetting-reporter
 
-[![version](https://img.shields.io/badge/version-2.9.1-blue.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.10.0-blue.svg)](CHANGELOG.md)
 [![status](https://img.shields.io/badge/status-active-success.svg)](#)
 [![category](https://img.shields.io/badge/category-security%20%2F%20governance-purple.svg)](#)
 [![validation](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml/badge.svg)](https://github.com/jovd83/skill-vetting-reporter/actions/workflows/validate.yml)
